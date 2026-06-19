@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: photo-painter-server
+  labels:
+    app: photo-painter-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: photo-painter-server
+  template:
+    metadata:
+      labels:
+        app: photo-painter-server
+    spec:
+      containers:
+      - name: server
+        image: photo-painter-server:latest # Replace with your registry image
+        ports:
+        - containerPort: 8000
+        env:
+        - name: PORT
+          value: "8000"
+        - name: SHARE_DIR
+          value: "/share"
+        volumeMounts:
+        - name: nfs-share
+          mountPath: /share
+      volumes:
+      - name: nfs-share
+        nfs:
+          server: dahole.treee.house
+          path: /frame-800x480-6colour
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: photo-painter-server
+spec:
+  type: ClusterIP # Change to LoadBalancer or NodePort if direct external access is needed
+  ports:
+  - port: 8000
+    targetPort: 8000
+  selector:
+    app: photo-painter-server
