@@ -29,9 +29,9 @@ IMAGES_DIR    = os.path.join(SHARE_DIR, 'images')   # flat: base_l.bmp / base_p.
 for d in (SHARE_DIR, ORIGINALS_DIR, IMAGES_DIR, CONFIG_DIR):
     os.makedirs(d, exist_ok=True)
 
-FIRMWARE_DIR = os.environ.get('FIRMWARE_DIR', '/app/micropython-firmware')
+FIRMWARE_DIR = os.environ.get('FIRMWARE_DIR', '/app/picframe-ESP32S3')
 if not os.path.exists(FIRMWARE_DIR):
-    FIRMWARE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../micropython-firmware')
+    FIRMWARE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'picframe-ESP32S3')
 
 def get_latest_firmware_version():
     main_py_path = os.path.join(FIRMWARE_DIR, 'main.py')

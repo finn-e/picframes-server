@@ -8,7 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source code
 COPY app.py .
-COPY micropython-firmware ./micropython-firmware
+COPY picframe-ESP32S3 ./picframe-ESP32S3
 
 # Expose port
 EXPOSE 8000
