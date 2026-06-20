@@ -1,22 +1,24 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: photo-painter-server
+  name: picframes
+  namespace: memories
   labels:
-    app: photo-painter-server
+    app: picframes
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: photo-painter-server
+      app: picframes
   template:
     metadata:
       labels:
-        app: photo-painter-server
+        app: picframes
     spec:
       containers:
       - name: server
-        image: photo-painter-server:latest # Replace with your registry image
+        image: forgejo.treee.house/fin/picframes:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 8000
         env:
@@ -24,23 +26,46 @@ spec:
           value: "8000"
         - name: SHARE_DIR
           value: "/share"
+        - name: CONFIG_DIR
+          value: "/config"
         volumeMounts:
         - name: nfs-share
           mountPath: /share
+        - name: config-volume
+          mountPath: /config
+      imagePullSecrets:
+      - name: forgejo-registry-creds
       volumes:
       - name: nfs-share
         nfs:
           server: dahole.treee.house
           path: /frame-800x480-6colour
+      - name: config-volume
+        persistentVolumeClaim:
+          claimName: picframes-config-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: picframes-config-pvc
+  namespace: memories
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: openebs-hostpath
+  resources:
+    requests:
+      storage: 1Gi
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: photo-painter-server
+  name: picframes
+  namespace: memories
 spec:
-  type: ClusterIP # Change to LoadBalancer or NodePort if direct external access is needed
+  type: ClusterIP
   ports:
   - port: 8000
     targetPort: 8000
   selector:
-    app: photo-painter-server
+    app: picframes
