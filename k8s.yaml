@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: forgejo.treee.house/fin/picframes:latest
+        image: ghcr.io/finn-e/picframes:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8000
@@ -33,8 +33,6 @@ spec:
           mountPath: /share
         - name: config-volume
           mountPath: /config
-      imagePullSecrets:
-      - name: forgejo-registry-creds
       volumes:
       - name: nfs-share
         nfs:
