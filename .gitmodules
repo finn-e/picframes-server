@@ -1,0 +1,3 @@
+[submodule "picframe-ESP32S3"]
+	path = picframe-ESP32S3
+	url = https://forgejo.treee.house/fin/picframe-ESP32S3.git
