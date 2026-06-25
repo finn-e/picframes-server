@@ -8,7 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source code
 COPY app.py .
-COPY picframe-ESP32S3 ./picframe-ESP32S3
+COPY picframe-waveshare-ESP32-S3-PhotoPainter ./picframe-ESP32S3
 
 # Expose port
 EXPOSE 8000
