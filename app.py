@@ -19,7 +19,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-SERVER_VERSION = "0.6.7"
+SERVER_VERSION = "0.6.8"
 
 SHARE_DIR     = os.environ.get('SHARE_DIR', '/share')
 CONFIG_DIR    = os.environ.get('CONFIG_DIR', '/config')
