@@ -5,12 +5,12 @@ services:
     build: .
     container_name: picframes-server
     ports:
-      - "8000:8000"
+      - "8000:8080"
     volumes:
       - ./data/share:/share
       - ./data/config:/config
     environment:
-      - PORT=8000
+      - PORT=8080
       - SHARE_DIR=/share
       - CONFIG_DIR=/config
       - FIRMWARE_DIR=/app/firmware

@@ -19,13 +19,13 @@ COPY converters/ ./converters/
 COPY firmware/ ./firmware/
 
 # Expose server port
-EXPOSE 8000
+EXPOSE 8080
 
 # Environment variables
-ENV PORT=8000
+ENV PORT=8080
 ENV SHARE_DIR=/share
 ENV CONFIG_DIR=/config
 ENV FIRMWARE_DIR=/app/firmware
 
 # Run Flask app with production gunicorn server
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "120", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--timeout", "120", "app:app"]
