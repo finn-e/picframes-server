@@ -344,29 +344,28 @@ def show_setup_screen():
         for i in range(0, 192000, 2):
             buf[i] = 0x11  # white/white
 
+    # Clear bottom quarter to solid white
+    for y in range(360, 480):
+        for xb in range(400):
+            buf[y * 400 + xb] = 0x11
+
     from display_overlay import _render_text_line, apply_battery_square, apply_branding_text
     ap_name = 'PicFrame-' + mac_str.replace(':', '')
     msg_lines = [
         'PLEASE CONNECT USB POWER.',
-        '',
-        'TO SET UP YOUR PICFRAME,',
-        'CONNECT TO WI-FI NETWORK:',
+        'TO SET UP YOUR PICFRAME, CONNECT TO WI-FI NETWORK:',
         ap_name[:40],
-        'THEN OPEN 192.168.4.1',
-        '',
-        "NEED HELP? CONTACT FIN O'FLAHERTY.",
+        'THEN OPEN http://192.168.4.1/ ON YOUR PHONE OR COMPUTER.',
+        "NEED HELP? CONTACT FIN O'FLAHERTY."
     ]
-    scale = 2
+    scale = 1
     line_h = 8 * scale + 4
-    total_h = len([l for l in msg_lines if l]) * line_h
-    y_start = max(0, (480 - total_h) // 2)
+    total_h = len(msg_lines) * line_h
+    y_start = 360 + (120 - total_h) // 2
     y = y_start
     for line in msg_lines:
-        if line:
-            _render_text_line(buf, line, y, scale=scale)
-            y += line_h
-        else:
-            y += line_h // 2
+        _render_text_line(buf, line, y, scale=scale)
+        y += line_h
 
     apply_battery_square(buf, get_bat_pct())
     apply_branding_text(buf)
