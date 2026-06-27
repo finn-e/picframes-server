@@ -25,6 +25,18 @@ def dither_floyd_steinberg(img_array, palette):
     for y in range(h):
         for x in range(1, w + 1):
             old_val = padded[y, x].copy()
+            
+            # Prevent color error bleeding into pure/clean black or white pixels
+            l1_dist_black = np.sum(np.abs(old_val - [0, 0, 0]))
+            l1_dist_white = np.sum(np.abs(old_val - [255, 255, 255]))
+            
+            if l1_dist_black < 15:
+                padded[y, x] = [0, 0, 0]
+                continue
+            elif l1_dist_white < 15:
+                padded[y, x] = [255, 255, 255]
+                continue
+                
             diff = palette - old_val
             dist = np.sum(diff ** 2, axis=1)
             idx = np.argmin(dist)
@@ -36,6 +48,7 @@ def dither_floyd_steinberg(img_array, palette):
             padded[y + 1, x    ] += err * (5.0 / 16.0)
             padded[y + 1, x + 1] += err * (1.0 / 16.0)
     return padded[0:h, 1:w+1].astype(np.uint8)
+
 
 def rgb_array_to_spectra6_bitstream(img_array):
     h, w, _ = img_array.shape
@@ -73,11 +86,10 @@ def process_image(src_path, dst_path):
         
     print(f"Center cropping from {w}x{h} to {crop_w}x{crop_h} (offset: {x_offset}, {y_offset})")
     cropped = img.crop((x_offset, y_offset, x_offset + crop_w, y_offset + crop_h))
-    
     print(f"Resizing to {target_w}x{target_h}")
-    resized = cropped.resize((target_w, target_h), Image.Resampling.LANCZOS)
+    resized = cropped.resize((target_w, target_h), Image.Resampling.NEAREST)
     
-    print("Applying Floyd-Steinberg dithering to 6-color palette...")
+    print("Applying Floyd-Steinberg dithering to 7-color palette...")
     img_array = np.array(resized, dtype=np.float32)
     dithered_rgb = dither_floyd_steinberg(img_array, PALETTE)
     
