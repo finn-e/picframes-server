@@ -243,13 +243,33 @@ def start_ap_and_portal():
             conn, addr = s.accept()
             req = conn.recv(2048).decode('utf-8', 'ignore')
             lines = req.split('\r\n')
+            if not lines or not lines[0]:
+                conn.close()
+                continue
             first = lines[0].split(' ')
             method = first[0] if first else ''
             path = first[1] if len(first) > 1 else '/'
-            is_local = '192.168.4.1' in req
 
-            if not is_local or path not in ('/', '/save', '/favicon.ico'):
-                conn.send('HTTP/1.1 302 Found\r\nLocation: http://192.168.4.1/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n')
+            host = ""
+            for line in lines:
+                if line.lower().startswith("host:"):
+                    host = line.split(":", 1)[1].strip()
+                    break
+
+            is_portal_host = (host == "192.168.4.1")
+
+            if not is_portal_host:
+                # Send a 302 redirect with no-cache headers to trigger Captive Portal Assistant pop-ups
+                redirect_resp = (
+                    "HTTP/1.1 302 Found\r\n"
+                    "Location: http://192.168.4.1/\r\n"
+                    "Cache-Control: no-cache, no-store, must-revalidate\r\n"
+                    "Pragma: no-cache\r\n"
+                    "Expires: 0\r\n"
+                    "Content-Length: 0\r\n"
+                    "Connection: close\r\n\r\n"
+                )
+                conn.send(redirect_resp)
                 conn.close()
                 continue
 
