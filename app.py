@@ -10,7 +10,7 @@ import threading
 from datetime import datetime
 from PIL import Image, ImageOps
 import numpy as np
-from flask import Flask, request, jsonify, render_template_string, send_from_directory, redirect, url_for
+from flask import Flask, request, jsonify, render_template_string, send_from_directory, redirect, url_for, session
 from zeroconf import IPVersion, Zeroconf, ServiceInfo
 import socket
 import sqlite3
@@ -19,7 +19,157 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+app.secret_key = os.environ.get('SECRET_KEY', 'picframes_secret_session_key_12345')
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin')
 SERVER_VERSION = "0.6.8"
+
+# ---------------------------------------------------------------------------
+# Authentication Gate
+# ---------------------------------------------------------------------------
+
+LOGIN_HTML = """<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PicFrames Controller Login</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap');
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Outfit', sans-serif;
+      background: radial-gradient(circle at center, hsl(220, 30%, 12%), hsl(220, 35%, 6%));
+      color: hsl(220, 20%, 94%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: rgba(30, 41, 59, 0.75);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      padding: 40px;
+      border-radius: 22px;
+      width: 100%;
+      max-width: 400px;
+      box-shadow: 0 24px 48px rgba(0,0,0,0.55);
+    }
+    h2 {
+      font-weight: 700;
+      font-size: 2rem;
+      margin-bottom: 8px;
+      background: linear-gradient(135deg, hsl(190, 100%, 55%), hsl(260, 90%, 65%));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      text-align: center;
+    }
+    .sub {
+      text-align: center;
+      font-size: 0.9rem;
+      color: hsl(220, 15%, 58%);
+      margin-bottom: 24px;
+    }
+    .error {
+      color: hsl(0, 85%, 65%);
+      background: rgba(239, 68, 68, 0.12);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+      padding: 12px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      font-size: 0.85rem;
+      text-align: center;
+    }
+    label {
+      display: block;
+      font-size: 0.85rem;
+      color: hsl(220, 12%, 68%);
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+    .input-group {
+      margin-bottom: 20px;
+    }
+    input[type=password] {
+      width: 100%;
+      padding: 12px 14px;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.11);
+      border-radius: 10px;
+      color: white;
+      font-size: 0.95rem;
+      transition: all 0.2s;
+    }
+    input[type=password]:focus {
+      outline: none;
+      border-color: hsl(190, 100%, 55%);
+      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.14);
+    }
+    input[type=submit] {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 10px;
+      background: linear-gradient(135deg, hsl(190, 100%, 45%), hsl(260, 90%, 55%));
+      color: white;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      box-shadow: 0 4px 12px rgba(56, 189, 248, 0.2);
+      margin-top: 8px;
+    }
+    input[type=submit]:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(56, 189, 248, 0.3);
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>PicFrames</h2>
+    <div class="sub">Sign in to manage your frames</div>
+    {% if error %}
+      <div class="error">{{ error }}</div>
+    {% endif %}
+    <form method="POST">
+      <div class="input-group">
+        <label>Admin Password</label>
+        <input type="password" name="password" required placeholder="Enter password" autofocus>
+      </div>
+      <input type="submit" value="Sign In">
+    </form>
+  </div>
+</body>
+</html>"""
+
+@app.before_request
+def auth_gate():
+    path = request.path
+    if path.startswith('/api/') or path == '/device_orientation' or path == '/login' or path.startswith('/static/'):
+        return None
+    if not session.get('authenticated'):
+        return redirect(url_for('login'))
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if session.get('authenticated'):
+        return redirect(url_for('index'))
+    error = None
+    if request.method == 'POST':
+        pwd = request.form.get('password')
+        if pwd == ADMIN_PASSWORD:
+            session['authenticated'] = True
+            session.permanent = True
+            return redirect(url_for('index'))
+        else:
+            error = "Invalid Password"
+    return render_template_string(LOGIN_HTML, error=error)
+
+@app.route('/logout')
+def logout():
+    session.pop('authenticated', None)
+    return redirect(url_for('login'))
 
 SHARE_DIR     = os.environ.get('SHARE_DIR', '/share')
 CONFIG_DIR    = os.environ.get('CONFIG_DIR', '/config')
