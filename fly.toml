@@ -21,3 +21,14 @@ primary_region = 'iad'
   cpu_kind = 'shared'
   cpus = 1
   memory_mb = 256
+
+[env]
+  PORT = "8080"
+  SHARE_DIR = "/data/share"
+  CONFIG_DIR = "/data/config"
+  FIRMWARE_DIR = "/app/firmware"
+
+[mounts]
+  source = "picframes_data"
+  destination = "/data"
+
