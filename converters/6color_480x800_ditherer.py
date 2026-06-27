@@ -3,21 +3,20 @@ import sys
 import os
 import numpy as np
 from PIL import Image, ImageOps
-
-# E6 Spectra 7.3" 7-color palette (supported by hardware)
+# E6 Spectra 7.3" 6-color WRGBYK palette
 PALETTE = np.array([
-    [0,   0,   0  ], # 0: Black
-    [255, 255, 255], # 1: White
-    [0,   255, 0  ], # 2: Green
-    [0,   0,   255], # 3: Blue
-    [255, 0,   0  ], # 4: Red
-    [255, 255, 0  ], # 5: Yellow
-    [255, 128, 0  ], # 6: Orange
+    [0,   0,   0  ], # 0: Black (K)
+    [255, 255, 255], # 1: White (W)
+    [0,   255, 0  ], # 2: Green (G)
+    [0,   0,   255], # 3: Blue (B)
+    [255, 0,   0  ], # 4: Red (R)
+    [255, 255, 0  ], # 5: Yellow (Y)
 ], dtype=np.float32)
 
-# Hardware register color mappings for EPD_7in3f:
-# 0: Black, 1: White, 2: Yellow, 3: Red, 4: Orange, 5: Blue, 6: Green
-HARDWARE_MAP = np.array([0, 1, 6, 5, 3, 2, 4], dtype=np.uint8)
+# Hardware register color mappings for EPD_7in3f (Spectra 6):
+# 0: Black, 1: White, 2: Yellow, 3: Red, 5: Blue, 6: Green
+HARDWARE_MAP = np.array([0, 1, 6, 5, 3, 2], dtype=np.uint8)
+
 
 def dither_floyd_steinberg(img_array, palette):
     h, w, _ = img_array.shape
