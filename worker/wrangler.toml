@@ -1,0 +1,19 @@
+name = "picframes-server"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ADMIN_USERNAME = "admin"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "picframes"
+database_id = "YOUR_D1_DATABASE_ID"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "picframes"
+
+[dev]
+port = 8787
