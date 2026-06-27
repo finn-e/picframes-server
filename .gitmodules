@@ -1,4 +1,0 @@
-[submodule "picframe-waveshare-ESP32-S3-PhotoPainter"]
-	path = picframe-waveshare-ESP32-S3-PhotoPainter
-	url = https://github.com/finn-e/picframe-waveshare-ESP32-S3-PhotoPainter.git
-	branch = trunk
