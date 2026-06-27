@@ -1,21 +1,31 @@
 FROM python:3.11-slim
 
+# Install system dependencies for Pillow and packaging
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libjpeg-dev \
+    zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
-# Install dependencies
+# Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy source code
+# Copy source code and firmware
 COPY app.py .
-COPY picframe-waveshare-ESP32-S3-PhotoPainter ./picframe-ESP32S3
+COPY converters/ ./converters/
+COPY firmware/ ./firmware/
 
-# Expose port
+# Expose server port
 EXPOSE 8000
 
 # Environment variables
 ENV PORT=8000
 ENV SHARE_DIR=/share
+ENV CONFIG_DIR=/config
+ENV FIRMWARE_DIR=/app/firmware
 
-# Run the app
-CMD ["python", "app.py"]
+# Run Flask app with production gunicorn server
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "120", "app:app"]

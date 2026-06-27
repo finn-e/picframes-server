@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  picframes-server:
+    build: .
+    container_name: picframes-server
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data/share:/share
+      - ./data/config:/config
+    environment:
+      - PORT=8000
+      - SHARE_DIR=/share
+      - CONFIG_DIR=/config
+      - FIRMWARE_DIR=/app/firmware
+    restart: unless-stopped
