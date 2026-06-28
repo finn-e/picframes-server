@@ -372,6 +372,10 @@ def init_db():
         sort_order INTEGER
     )
     """)
+    try:
+        cursor.execute("ALTER TABLE enabled ADD COLUMN title INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
 
     # Migrate legacy JSON files if database is empty / not migrated yet
@@ -675,9 +679,15 @@ def load_enabled():
     try:
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT base, l, p FROM enabled")
+        cursor.execute("SELECT * FROM enabled")
         for row in cursor.fetchall():
-            enabled[row['base']] = {"l": bool(row['l']), "p": bool(row['p'])}
+            cols = row.keys()
+            has_title = 'title' in cols
+            enabled[row['base']] = {
+                "l": bool(row['l']),
+                "p": bool(row['p']),
+                "title": bool(row['title']) if has_title else False
+            }
         conn.close()
     except Exception as e:
         logger.error(f"SQL load_enabled failed: {e}")
@@ -690,16 +700,22 @@ def save_enabled(enabled):
         for base, val in enabled.items():
             l_val = val.get('l', True) if isinstance(val, dict) else val
             p_val = val.get('p', True) if isinstance(val, dict) else val
-            cursor.execute("INSERT OR REPLACE INTO enabled (base, l, p) VALUES (?, ?, ?)", (base, 1 if l_val else 0, 1 if p_val else 0))
+            title_val = val.get('title', False) if isinstance(val, dict) else False
+            try:
+                cursor.execute("INSERT OR REPLACE INTO enabled (base, l, p, title) VALUES (?, ?, ?, ?)",
+                               (base, 1 if l_val else 0, 1 if p_val else 0, 1 if title_val else 0))
+            except sqlite3.OperationalError:
+                cursor.execute("INSERT OR REPLACE INTO enabled (base, l, p) VALUES (?, ?, ?)",
+                               (base, 1 if l_val else 0, 1 if p_val else 0))
         conn.commit()
         conn.close()
     except Exception as e:
         logger.error(f"SQL save_enabled failed: {e}")
 
 def _flags(enabled, base):
-    v = enabled.get(base, {"l": True, "p": True})
-    if isinstance(v, bool): return {"l": v, "p": v}
-    return {"l": v.get("l", True), "p": v.get("p", True)}
+    v = enabled.get(base, {"l": True, "p": True, "title": False})
+    if isinstance(v, bool): return {"l": v, "p": v, "title": False}
+    return {"l": v.get("l", True), "p": v.get("p", True), "title": v.get("title", False)}
 
 # ---------------------------------------------------------------------------
 # Active image helpers
@@ -1569,6 +1585,18 @@ HTML_TEMPLATE = r"""
                     <div class="crop-container" data-base="{{ img.base }}" data-orient="p" data-offset="{{ img.offset_p }}" data-w="{{ img.orig_w }}" data-h="{{ img.orig_h }}">
                         <img class="crop-bg-img" src="{{ url_for('serve_image', filename=img.base + '_dithered.png') }}">
                         <div class="crop-overlay-box"></div>
+                    </div>
+                </div>
+
+                <div class="preview-cell" style="display:flex; flex-direction:column; justify-content:center; align-items:center; min-width:120px; border-left:1px solid rgba(255,255,255,0.08);">
+                    <div class="preview-label" style="justify-content:center; width:100%; border-bottom:none;">
+                        <span style="margin-right:0.75rem; font-weight:600;">Title Outline</span>
+                        <span class="toggle-wrap">
+                            <input type="checkbox" class="toggle" id="tog_title_{{ img.base }}"
+                                   {% if img.title_on %}checked{% endif %}
+                                   onchange="toggleOrient('{{ img.base }}', 'title', this.checked)">
+                            <label for="tog_title_{{ img.base }}" style="font-size:0.75rem;">On</label>
+                        </span>
                     </div>
                 </div>
             </div>
@@ -2561,7 +2589,7 @@ def index():
         images.append({
             'base': base, 'original_name': original_name,
             'has_l': has_l, 'has_p': has_p,
-            'l_on': flags["l"], 'p_on': flags["p"],
+            'l_on': flags["l"], 'p_on': flags["p"], 'title_on': flags.get("title", False),
             'orig_w': orig_w, 'orig_h': orig_h,
             'offset_l': crop_offsets.get("l", 0.5),
             'offset_p': crop_offsets.get("p", 0.5),
@@ -2751,9 +2779,9 @@ def rename_image():
 def toggle_orient():
     data   = request.get_json()
     base   = data.get('base')
-    orient = data.get('orient')   # 'l' or 'p'
+    orient = data.get('orient')   # 'l', 'p', or 'title'
     val    = bool(data.get('enabled', True))
-    if not base or orient not in ('l', 'p'):
+    if not base or orient not in ('l', 'p', 'title'):
         return jsonify({'ok': False}), 400
     enabled = load_enabled()
     flags = _flags(enabled, base)
@@ -3311,6 +3339,7 @@ def api_daily_zip():
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, mode='w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+        cfg['enabled'] = load_enabled()
         zf.writestr('config.json', json.dumps(cfg, indent=2))
         manifest_data = json.dumps(candidates, indent=2)
         zf.writestr('index.json', manifest_data)

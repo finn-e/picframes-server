@@ -90,6 +90,12 @@ X-Device-Token: <Base62 token from /register>
 | `picframes-processed` | `<frame_id>/<basename>_p.bin` | Portrait 4bpp assets |
 | `picframes-zips` | `<frame_id>/daily.zip` | Per-frame asset bundle |
 
+## Development and Releases
+
+When contributing, please follow the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/#specification) specification for commit messages:
+* **Fixes:** `fix: resolve dither rendering offset`
+* **Features:** `feat: support debug overlay display toggles`
+
 ## License
 
 MIT — see [LICENSE](LICENSE)
