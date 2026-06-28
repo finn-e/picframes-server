@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'picframes_secret_session_key_12345')
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin')
-SERVER_VERSION = "0.6.9"
+SERVER_VERSION = "0.7.0"
 
 # ---------------------------------------------------------------------------
 # Authentication Gate
