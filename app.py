@@ -179,22 +179,71 @@ IMAGES_DIR    = os.path.join(SHARE_DIR, 'images')   # flat: base_l.bmp / base_p.
 for d in (SHARE_DIR, ORIGINALS_DIR, IMAGES_DIR, CONFIG_DIR):
     os.makedirs(d, exist_ok=True)
 
-FIRMWARE_DIR = os.environ.get('FIRMWARE_DIR', '/app/picframe-ESP32S3')
-if not os.path.exists(FIRMWARE_DIR):
-    FIRMWARE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'picframe-ESP32S3')
+_github_latest_release_cache = {
+    'tag': None,
+    'assets': {}, # hw_profile -> download_url
+    'last_updated': 0
+}
+
+def _update_github_release_cache():
+    import requests as py_requests
+    now = time.time()
+    # Cache for 60 seconds
+    if now - _github_latest_release_cache['last_updated'] < 60:
+        return
+        
+    repo = "finn-e/picframe-waveshare-ESP32-S3-PhotoPainter"
+    url = f"https://api.github.com/repos/{repo}/releases/latest"
+    try:
+        headers = {"Accept": "application/vnd.github+json"}
+        token = os.environ.get("GITHUB_TOKEN")
+        if token:
+            headers["Authorization"] = f"token {token}"
+            
+        r = py_requests.get(url, headers=headers, timeout=5)
+        if r.status_code == 200:
+            data = r.json()
+            tag = data.get("tag_name", "").strip().lstrip('v')
+            assets = {}
+            for asset in data.get("assets", []):
+                name = asset.get("name", "")
+                if name.endswith(".zip"):
+                    hw_profile = name[:-4] # e.g. "ESP32-S3-PhotoPainter"
+                    assets[hw_profile] = asset.get("browser_download_url")
+                    if '-' in hw_profile:
+                        base_profile = hw_profile.split('-', 1)[0]
+                        assets[base_profile] = asset.get("browser_download_url")
+            
+            _github_latest_release_cache['tag'] = tag
+            _github_latest_release_cache['assets'] = assets
+            _github_latest_release_cache['last_updated'] = now
+            logger.info(f"GitHub Releases Cache updated: latest tag is {tag}, assets: {list(assets.keys())}")
+    except Exception as e:
+        logger.error(f"Failed to query GitHub Releases API: {e}")
 
 def get_latest_firmware_version():
-    main_py_path = os.path.join(FIRMWARE_DIR, 'main.py')
-    if os.path.exists(main_py_path):
-        try:
-            with open(main_py_path, 'r') as f:
-                content = f.read()
-            m = re.search(r'FIRMWARE_VERSION\s*=\s*["\']([^"\']+)["\']', content)
-            if m:
-                return m.group(1)
-        except Exception as e:
-            logger.warning(f"Could not extract firmware version from main.py: {e}")
-    return '0.1.1'
+    try:
+        _update_github_release_cache()
+        if _github_latest_release_cache['tag']:
+            return _github_latest_release_cache['tag']
+    except Exception:
+        pass
+
+    # Local fallback
+    for path in [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), '../picframe-devices/ESP32-S3-PhotoPainter/main.py'),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'firmware/main.py')
+    ]:
+        if os.path.exists(path):
+            try:
+                with open(path, 'r') as f:
+                    content = f.read()
+                m = re.search(r'FILE VERSION:\s*([0-9\.]+)', content)
+                if m:
+                    return m.group(1).strip()
+            except Exception:
+                pass
+    return '2.0.0'
 
 # ---------------------------------------------------------------------------
 # E6 Spectra 7.3" 6-color palette
@@ -3177,27 +3226,37 @@ def api_images():
     return jsonify(files)
 
 
+def get_latest_github_release_url(hw_profile, current_version):
+    try:
+        _update_github_release_cache()
+        tag = _github_latest_release_cache['tag']
+        
+        def parse_ver(v):
+            try:
+                return tuple(int(x) for x in v.split('.')[:3])
+            except Exception:
+                return (0, 0, 0)
+                
+        if tag and parse_ver(tag) > parse_ver(current_version):
+            return _github_latest_release_cache['assets'].get(hw_profile)
+    except Exception as e:
+        logger.error(f"Error checking GitHub releases for update: {e}")
+    return None
+
+@app.route('/update', methods=['GET'])
 @app.route('/api/update', methods=['GET'])
 def api_update():
-    from flask import Response
-    import io
-    if not os.path.exists(FIRMWARE_DIR):
-        logger.error(f"Firmware directory {FIRMWARE_DIR} not found")
-        return "Firmware directory not found", 404
+    hw = request.args.get('hw', '').strip()
+    version = request.args.get('version', '').strip()
+    if not hw:
+        return "Missing hw profile parameter", 400
         
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, mode='w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
-        for f in os.listdir(FIRMWARE_DIR):
-            if f.endswith('.py'):
-                file_path = os.path.join(FIRMWARE_DIR, f)
-                zf.write(file_path, arcname=f)
-                
-    size = buf.tell()
-    buf.seek(0)
-    logger.info(f"Serving firmware update ZIP: {size} bytes")
-    return Response(buf, mimetype='application/zip',
-                    headers={'Content-Disposition': 'attachment; filename="update.zip"',
-                             'Content-Length': str(size)})
+    update_url = get_latest_github_release_url(hw, version)
+    if update_url:
+        logger.info(f"Update available for {hw}: version {version} -> {update_url}")
+        return update_url, 200
+    else:
+        return "", 204
 
 
 @app.route('/api/daily-zip', methods=['GET'])
