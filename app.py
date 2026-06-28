@@ -698,7 +698,7 @@ def get_active_bases(orientation=None):
         has_p = os.path.exists(os.path.join(IMAGES_DIR, portrait_file(base)))
         if orientation == 'landscape' and has_l and flags["l"]: result.append(base)
         elif orientation == 'portrait' and has_p and flags["p"]: result.append(base)
-        elif orientation is None and ((has_l and flags["l"]) or (has_p and flags["p"])): result.append(base)
+        elif orientation is None and ((has_l && flags["l"]) or (has_p && flags["p"])): result.append(base)
     return result
 
 def get_unified_index():
@@ -868,8 +868,7 @@ def _target_for_device(cfg, state, device_mac, device_idx, num_devices):
     n = len(active); idx = state.get('current_index', 0)
     return active[idx % n if sync_images else (idx + device_idx) % n] + suffix
 
-HTML_TEMPLATE = r"""
-<!DOCTYPE html>
+HTML_TEMPLATE = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -911,32 +910,74 @@ HTML_TEMPLATE = r"""
         .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 1.5rem; backdrop-filter: blur(14px); }
         .card-title { font-size: 0.85rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 1.2rem; display: flex; align-items: center; gap: 0.5rem; }
         label { font-weight: 500; color: var(--muted); font-size: 0.9rem; }
-        input[type="number"], input[type="text"] { background: rgba(0,0,0,0.35); border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.75rem; color: var(--text); font-size: 0.95rem; outline: none; }
+        input[type="number"], input[type="text"] { background: rgba(0,0,0,0.35); border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.75rem; color: var(--text); font-size: 0.95rem; outline: none; font-family: inherit; }
+        input[type="number"] { width: 100px; }
         .form-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
         .toggle-wrap { display: flex; align-items: center; gap: 0.5rem; }
-        .toggle { appearance: none; width: 38px; height: 22px; background: rgba(255,255,255,0.12); border-radius: 11px; position: relative; cursor: pointer; border: 1px solid var(--border); }
+        .toggle { appearance: none; width: 38px; height: 22px; background: rgba(255,255,255,0.12); border-radius: 11px; position: relative; cursor: pointer; border: 1px solid var(--border); flex-shrink: 0; }
         .toggle::after { content: ''; position: absolute; width: 16px; height: 16px; border-radius: 50%; background: white; top: 2px; left: 2px; transition: transform 0.25s; }
         .toggle:checked { background: var(--accent); border-color: var(--accent); }
         .toggle:checked::after { transform: translateX(16px); }
-        .btn { background: var(--accent); color: white; border: none; border-radius: 8px; padding: 0.55rem 1.1rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; }
+        .btn { background: var(--accent); color: white; border: none; border-radius: 8px; padding: 0.55rem 1.1rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; font-family: inherit; white-space: nowrap; }
+        .btn:hover { background: var(--accent-h); transform: translateY(-1px); }
         .btn-danger { background: var(--danger); }
         .btn-ghost { background: rgba(255,255,255,0.07); color: var(--text); border: 1px solid var(--border); }
+        .btn-ghost:hover { background: rgba(255,255,255,0.13); }
         .btn-sm { padding: 0.35rem 0.7rem; font-size: 0.82rem; }
         .btn-warning { background: rgba(245,158,11,0.2); color: var(--warning); border: 1px solid rgba(245,158,11,0.3); }
-        .orient-pill { display: inline-flex; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
-        .orient-pill button { background: rgba(0,0,0,0.25); border: none; cursor: pointer; padding: 0.3rem 0.6rem; color: var(--muted); font-size: 0.8rem; font-weight: 600; }
+        .orient-pill { display: inline-flex; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); flex-shrink: 0; }
+        .orient-pill button { background: rgba(0,0,0,0.25); border: none; cursor: pointer; padding: 0.3rem 0.6rem; color: var(--muted); font-size: 0.8rem; font-weight: 600; font-family: inherit; }
         .orient-pill button.active-l { background: rgba(79,142,247,0.3); color: var(--accent); }
         .orient-pill button.active-p { background: rgba(167,139,250,0.3); color: #a78bfa; }
-        .mode-pill { display: inline-flex; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
-        .mode-pill button { background: rgba(0,0,0,0.25); border: none; cursor: pointer; padding: 0.3rem 0.6rem; color: var(--muted); font-size: 0.8rem; font-weight: 600; }
+        .mode-pill { display: inline-flex; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); flex-shrink: 0; }
+        .mode-pill button { background: rgba(0,0,0,0.25); border: none; cursor: pointer; padding: 0.3rem 0.6rem; color: var(--muted); font-size: 0.8rem; font-weight: 600; font-family: inherit; }
         .mode-pill button.active-g { background: rgba(34,197,94,0.3); color: var(--success); }
         .mode-pill button.active-i { background: rgba(79,142,247,0.3); color: var(--accent); }
         .device-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.65rem 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+        .device-row:last-child { border-bottom: none; }
+        .device-mac { font-family: monospace; font-size: 0.85rem; color: var(--muted); }
+        .device-idx { color: var(--muted); font-size: 0.8rem; white-space: nowrap; }
         #drop-zone { border: 2px dashed rgba(255,255,255,0.13); border-radius: 16px; padding: 2.5rem 2rem; text-align: center; cursor: pointer; background: var(--card); margin-bottom: 2rem; }
+        #drop-zone:hover { border-color: var(--accent); background: rgba(79,142,247,0.03); }
         #upload-progress { display: none; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.5rem; margin-bottom: 1.5rem; }
         .progress-bar-wrap { background: rgba(255,255,255,0.08); border-radius: 4px; height: 6px; margin-top: 0.5rem; overflow: hidden; }
-        .progress-bar { height: 100%; background: var(--accent); border-radius: 4px; transition: width 0.3s; }
-        .subtitle { color: var(--muted); font-size: 0.9rem; margin-top: 0.2rem; }
+        .progress-bar { height: 100%; background: var(--accent); width: 0%; transition: width 0.2s; }
+        .section-header { margin: 2rem 0 1rem; font-size: 1.3rem; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 0.75rem; }
+        .badge { padding: 0.25rem 0.65rem; border-radius: 20px; font-size: 0.78rem; font-weight: 600; }
+        .badge-blue { background: rgba(79,142,247,0.15); color: var(--accent); border: 1px solid rgba(79,142,247,0.25); }
+        .tabs-bar { display: flex; gap: 0.5rem; border-bottom: 2px solid var(--border); margin: 2rem 0 1.5rem; overflow-x: auto; }
+        .tab-btn { padding: 0.75rem 1.25rem; border-radius: 12px 12px 0 0; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-bottom: none; color: var(--muted); font-weight: 600; cursor: pointer; position: relative; top: 2px; }
+        .tab-btn.active { background: var(--card); border-bottom: 2px solid var(--accent); color: var(--text); }
+        .image-list-container { margin-bottom: 3rem; }
+        .image-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; margin-bottom: 1.25rem; }
+        .card-header { padding: 0.9rem 1.4rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 0.75rem; }
+        .btn-queue { background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border); color: var(--muted); border-radius: 8px; padding: 0.35rem 0.75rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; margin-left: auto; }
+        .btn-queue.active { background: var(--accent); color: #fff; }
+        .img-name { font-weight: 600; font-size: 1rem; }
+        .theme-selector-wrap { display: flex; align-items: center; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 12px; padding: 0.4rem 0.8rem; }
+        .theme-selector-wrap select { background: transparent; border: none; color: var(--text); font-weight: 600; cursor: pointer; font-family: inherit; outline: none; }
+        .triple-preview { display: grid; grid-template-columns: 1fr 1fr 1fr; border-bottom: 1px solid var(--border); }
+        @media (max-width: 768px) { .triple-preview { grid-template-columns: 1fr; } }
+        .preview-cell { padding: 1.2rem; display: flex; flex-direction: column; align-items: center; background: rgba(0,0,0,0.18); border-right: 1px solid var(--border); }
+        .preview-cell:last-child { border-right: none; }
+        .preview-label { font-size: 0.75rem; text-transform: uppercase; color: var(--muted); margin-bottom: 0.5rem; font-weight: 600; width: 100%; display: flex; justify-content: space-between; align-items: center; }
+        .preview-img { max-width: 100%; max-height: 200px; border-radius: 6px; object-fit: contain; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+        .crop-container { position: relative; width: 100%; max-height: 200px; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 8px; background: #0b0f19; border: 1px solid var(--border); }
+        .crop-bg-img { display: block; max-width: 100%; max-height: 200px; object-fit: contain; pointer-events: none; }
+        .crop-overlay-box { position: absolute; border: 2px dashed var(--accent); background: rgba(79, 142, 247, 0.22); cursor: grab; }
+        .status-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.75rem; margin-bottom: 1.5rem; }
+        .status-node { background: rgba(0,0,0,0.25); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; transition: transform 0.2s; }
+        .status-node:hover { transform: translateY(-2px); background: rgba(0,0,0,0.35); }
+        .status-node.online { border-color: rgba(34,197,94,0.4); }
+        .node-mac { font-family: monospace; font-size: 0.8rem; color: var(--muted); }
+        .node-status { font-size: 0.8rem; color: var(--muted); margin-top: 0.25rem; }
+        .status-node.online .node-status { color: var(--success); }
+        .status-node-img-wrap { margin-top: 0.5rem; border-radius: 6px; overflow: hidden; height: 110px; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; background: #111; }
+        .status-node-img { width: 150px; height: 90px; object-fit: cover; }
+        .status-node-img.portrait-rot { width: 90px; height: 54px; transform: rotate(-90deg); }
+        .card-actions { padding: 0.8rem 1.4rem; display: flex; justify-content: flex-end; gap: 0.75rem; background: rgba(0,0,0,0.08); }
+        #toast { position: fixed; bottom: 2rem; right: 2rem; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 0.75rem 1.25rem; opacity: 0; transition: opacity 0.3s; z-index: 999; pointer-events: none; backdrop-filter: blur(10px); }
+        #toast.show { opacity: 1; }
     </style>
 </head>
 <body>
@@ -946,8 +987,242 @@ HTML_TEMPLATE = r"""
             <h1>PicFrames Controller <span class="version-tag">v{{ version }}</span></h1>
             <div class="subtitle">E-Paper Frame Fleet Manager &nbsp;·&nbsp; {{ images|length }} image(s)</div>
         </div>
+        <div class="theme-selector-wrap">
+            <select id="theme-select" onchange="changeTheme(this.value)">
+                <option value="default">Default Dark</option>
+                <option value="light">Light</option>
+                <option value="really-dark">Really Dark</option>
+            </select>
+        </div>
     </header>
+
+    <div style="margin-bottom: 1.5rem;">
+        <div class="card-title" style="font-size: 0.9rem; color: var(--muted); margin-bottom: 0.75rem;">📶 Node Status (Phase: <strong>{{ phase }}</strong>)</div>
+        <div class="status-grid">
+        {% for dev in config.devices %}
+            {% set ts = node_status.get(dev.mac.lower(), 0) %}
+            {% set active_img = device_images.get(dev.mac.lower()) %}
+            {% set ip_addr = device_ips.get(dev.mac.lower(), "DHCP") %}
+            <div class="status-node {% if ts > now_ts - 120 %}online{% endif %}">
+                <div style="font-weight: 600;">{{ dev.name }}</div>
+                <div class="node-mac">{{ dev.mac }}</div>
+                <div style="font-size: 0.75rem; color: var(--muted);">{{ ip_addr }}</div>
+                <div class="node-status">
+                    {% if ts > 0 %}Active {{ ((now_ts - ts)|int) }}s ago{% else %}Offline{% endif %}
+                </div>
+                {% if active_img %}
+                <div class="status-node-img-wrap">
+                    <img class="status-node-img {% if active_img.endswith('_p.bin') %}portrait-rot{% endif %}" src="{{ url_for('serve_image', filename=active_img[:-4] + '.bmp') }}?t={{ now_ts }}">
+                </div>
+                {% endif %}
+            </div>
+        {% endfor %}
+        </div>
+    </div>
+
+    <div class="grid-2">
+        <div class="card">
+            <div class="card-title">⚙️ Slideshow Settings</div>
+            <form action="{{ url_for('update_config') }}" method="POST">
+                <div class="form-row">
+                    <label for="timer">Sleep interval (s):</label>
+                    <input type="number" id="timer" name="timer" value="{{ config.timer }}" min="10">
+                </div>
+                <div class="form-row">
+                    <span class="toggle-wrap">
+                        <input type="checkbox" class="toggle" id="sync_images" name="sync_images" {% if config.sync_images %}checked{% endif %} onchange="this.form.submit()">
+                        <label for="sync_images">Same image on all grouped devices</label>
+                    </span>
+                </div>
+                <div class="form-row">
+                    <span class="toggle-wrap">
+                        <input type="checkbox" class="toggle" id="shuffle" name="shuffle" {% if config.shuffle %}checked{% endif %} onchange="this.form.submit()">
+                        <label for="shuffle">Shuffle images in general pool</label>
+                    </span>
+                </div>
+                <button type="submit" class="btn" style="margin-top:0.5rem;">💾 Save Settings</button>
+                {% for dev in config.devices %}
+                <input type="hidden" name="device_mac_{{ loop.index0 }}" value="{{ dev.mac }}">
+                <input type="hidden" name="device_orient_{{ loop.index0 }}" value="{{ dev.orientation }}">
+                <input type="hidden" name="device_debug_{{ loop.index0 }}" value="{{ '1' if dev.debug else '0' }}">
+                <input type="hidden" name="device_shuffle_{{ loop.index0 }}" value="{{ '1' if dev.shuffle else '0' }}">
+                <input type="hidden" name="device_flip_l_{{ loop.index0 }}" value="{{ '1' if dev.flip_l else '0' }}">
+                <input type="hidden" name="device_flip_p_{{ loop.index0 }}" value="{{ '1' if dev.flip_p else '0' }}">
+                {% endfor %}
+                <input type="hidden" name="device_count" value="{{ config.devices|length }}">
+            </form>
+        </div>
+
+        <div class="card">
+            <div class="card-title">📡 Registered Hardware Nodes</div>
+            <form action="{{ url_for('update_devices') }}" method="POST">
+                <div id="device-list">
+                {% for dev in config.devices %}
+                <div class="device-row" data-idx="{{ loop.index0 }}">
+                    <span class="device-idx">#{{ loop.index0 }}</span>
+                    <div class="device-name-wrap" style="flex:1;">
+                        <span style="font-weight:600;">{{ dev.name }}</span> &nbsp;
+                        <div class="orient-pill">
+                            <button type="button" class="{% if dev.orientation == 'landscape' %}active-l{% endif %}" onclick="setDeviceOrient('{{ dev.mac }}', 'landscape')">L</button>
+                            <button type="button" class="{% if dev.orientation == 'portrait' %}active-p{% endif %}" onclick="setDeviceOrient('{{ dev.mac }}', 'portrait')">P</button>
+                        </div>
+                        <br><span class="device-mac">{{ dev.mac }}</span>
+                    </div>
+                    <input type="hidden" name="mac_{{ loop.index0 }}" value="{{ dev.mac }}">
+                    <input type="hidden" name="orient_{{ loop.index0 }}" value="{{ dev.orientation }}" id="hidden_orient_{{ dev.mac }}">
+                    <button type="button" class="btn btn-danger btn-sm" onclick="removeDevice({{ loop.index0 }})">✕</button>
+                </div>
+                {% endfor %}
+                </div>
+                <input type="hidden" name="device_count" id="device_count" value="{{ config.devices|length }}">
+                <button type="submit" class="btn" style="margin-top:0.75rem;">💾 Save Changes</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="section-header">
+        🖼️ System Media Asset Pool <span class="badge badge-blue">{{ images|length }}</span>
+    </div>
+
+    <div id="drop-zone">
+        <strong>Drag &amp; drop photos here, or click to browse</strong>
+        <p style="font-size: 0.85rem; color: var(--muted); margin-top: 0.25rem;">Supports JPG, PNG, WebP, BMP assets. Native EPD bitstreams are packed automatically on upload.</p>
+        <form id="upload-form" action="{{ url_for('upload_file') }}" method="POST" enctype="multipart/form-data">
+            <input type="file" id="file-input" name="files" multiple style="display:none;">
+        </form>
+    </div>
+    
+    <div id="upload-progress">
+        <div id="progress-label">Uploading assets…</div>
+        <div class="progress-bar-wrap"><div class="progress-bar" id="progress-bar"></div></div>
+    </div>
+
+    <div class="tabs-bar">
+        <div class="tab-btn active">General Playlist</div>
+    </div>
+
+    <div class="tab-content">
+        <div id="image-list-general" class="image-list-container">
+        {% for img in images %}
+        <div class="image-card" data-base="{{ img.base }}">
+            <div class="card-header">
+                <span class="img-name">{{ img.base.replace('_', ' ') }}</span>
+                {% set is_queued = (state.queued_image and state.queued_image.base == img.base) %}
+                <button type="button" class="btn-queue {% if is_queued %}active{% endif %}" onclick="queueImage('{{ img.base }}')">
+                    ⚡ {% if is_queued %}Queued Next{% else %}Queue Push{% endif %}
+                </button>
+            </div>
+            <div class="triple-preview">
+                <div class="preview-cell">
+                    <div class="preview-label">Original Matrix Source</div>
+                    <img class="preview-img" src="{{ url_for('serve_original', filename=img.original_name) }}">
+                </div>
+                <div class="preview-cell">
+                    <div class="preview-label">
+                        <span>Landscape EPD Channel</span>
+                        <span class="toggle-wrap">
+                            <input type="checkbox" class="toggle" id="tog_l_{{ img.base }}" {% if img.l_on %}checked{% endif %} onchange="toggleOrient('{{ img.base }}', 'l', this.checked)">
+                        </span>
+                    </div>
+                    <img class="preview-img" src="{{ url_for('serve_image', filename=img.base + '_l.bmp') }}" onerror="this.style.display='none'">
+                </div>
+                <div class="preview-cell">
+                    <div class="preview-label">
+                        <span>Portrait EPD Channel</span>
+                        <span class="toggle-wrap">
+                            <input type="checkbox" class="toggle" id="tog_p_{{ img.base }}" {% if img.p_on %}checked{% endif %} onchange="toggleOrient('{{ img.base }}', 'p', this.checked)">
+                        </span>
+                    </div>
+                    <img class="preview-img" src="{{ url_for('serve_image', filename=img.base + '_p.bmp') }}" onerror="this.style.display='none'">
+                </div>
+            </div>
+            <div class="card-actions">
+                <form action="{{ url_for('delete_file', filename=img.original_name) }}" method="POST" onsubmit="return confirm('Purge this asset from cluster cache?');">
+                    <button type="submit" class="btn btn-danger btn-sm">🗑 Remove Asset</button>
+                </form>
+            </div>
+        </div>
+        {% endfor %}
+        </div>
+    </div>
 </div>
+
+<div id="toast"></div>
+
+<script>
+function changeTheme(t) { document.documentElement.setAttribute('data-theme', t); localStorage.setItem('picframes-theme', t); }
+function toast(m) { const e = document.getElementById('toast'); e.textContent = m; e.classList.add('show'); setTimeout(() => e.classList.remove('show'), 2500); }
+
+const dz = document.getElementById('drop-zone');
+const fi = document.getElementById('file-input');
+dz.addEventListener('click', () => fi.click());
+dz.addEventListener('dragover', e => { e.preventDefault(); });
+dz.addEventListener('drop', e => { e.preventDefault(); if(e.dataTransfer.files.length) handleUpload(e.dataTransfer.files); });
+fi.addEventListener('change', () => { if(fi.files.length) handleUpload(fi.files); });
+
+function handleUpload(files) {
+    const fd = new FormData();
+    for(let f of files) fd.append('files', f);
+    document.getElementById('upload-progress').style.display = 'block';
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/upload');
+    xhr.upload.addEventListener('progress', e => {
+        if(e.lengthComputable) {
+            const pct = Math.round(e.loaded / e.total * 100);
+            document.getElementById('progress-bar').style.width = pct + '%';
+        }
+    });
+    xhr.onload = () => window.location.reload();
+    xhr.send(fd);
+}
+
+function toggleOrient(base, orient, enabled) {
+    fetch('/toggle_orient', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({base, orient, enabled})
+    }).then(r => r.json()).then(d => toast(d.ok ? 'State Updated' : 'Error'));
+}
+
+function setDeviceOrient(mac, orientation) {
+    fetch('/device_orientation', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({mac, orientation})
+    }).then(r => r.json()).then(d => {
+        if(d.ok) {
+            const h = document.getElementById('hidden_orient_' + mac);
+            if(h) h.value = orientation;
+            toast('Orientation changed to ' + orientation);
+            setTimeout(() => window.location.reload(), 500);
+        }
+    });
+}
+
+function queueImage(base) {
+    fetch('/api/queue', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({base, source: 'general'})
+    }).then(r => r.json()).then(d => {
+        if(d.ok) {
+            toast(d.action === 'queued' ? 'Asset pushed to front of execution queue' : 'Cleared queue line');
+            setTimeout(() => window.location.reload(), 500);
+        }
+    });
+}
+
+function removeDevice(idx) {
+    document.querySelector(`.device-row[data-idx="${idx}"]`)?.remove();
+    deviceCount = document.querySelectorAll('.device-row').length;
+    document.getElementById('device_count').value = deviceCount;
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+    applyTheme(localStorage.getItem('picframes-theme') || 'default');
+});
+function applyTheme(t) { document.documentElement.setAttribute('data-theme', t); const s = document.getElementById('theme-select'); if(s) s.value = t; }
+</script>
 </body>
 </html>
 """
@@ -974,7 +1249,6 @@ def index():
         has_l = os.path.exists(os.path.join(IMAGES_DIR, base + LANDSCAPE_SUFFIX))
         has_p = os.path.exists(os.path.join(IMAGES_DIR, base + PORTRAIT_SUFFIX))
         flags = _flags(enabled, base)
-
         ensure_dithered_original(base)
 
         try:
@@ -984,7 +1258,6 @@ def index():
             orig_w, orig_h = 800, 480
 
         crop_offsets = crops.get(base, {"l": 0.5, "p": 0.5})
-
         images.append({
             'base': base, 'original_name': original_name,
             'has_l': has_l, 'has_p': has_p,
@@ -997,7 +1270,6 @@ def index():
         })
 
     image_by_base = {img['base']: img for img in images}
-
     now_ts      = int(time.time())
     node_status = state.get('last_seen', {})
     device_ips = state.get('device_ips', {})
@@ -1008,6 +1280,7 @@ def index():
                                   node_status=node_status, device_ips=device_ips,
                                   device_images=device_images, now_ts=now_ts, phase=phase,
                                   image_by_base=image_by_base, version=SERVER_VERSION)
+
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
@@ -1021,12 +1294,14 @@ def upload_file():
         convert_image(original_path, base)
     return redirect(url_for('index'))
 
+
 @app.route('/convert/<filename>', methods=['POST'])
 def convert_file(filename):
     original_path = os.path.join(ORIGINALS_DIR, filename)
     if not os.path.exists(original_path): return "File not found", 404
     base, _ = os.path.splitext(filename)
     return redirect(url_for('index')) if convert_image(original_path, base) else ("Conversion failed", 500)
+
 
 @app.route('/convert_all', methods=['POST'])
 def convert_all():
@@ -1037,6 +1312,7 @@ def convert_all():
             convert_image(os.path.join(ORIGINALS_DIR, f), base)
             count += 1
     return redirect(url_for('index'))
+
 
 @app.route('/delete/<filename>', methods=['POST'])
 def delete_file(filename):
@@ -1077,6 +1353,7 @@ def delete_file(filename):
     trigger_redownload()
     return redirect(url_for('index'))
 
+
 @app.route('/rename', methods=['POST'])
 def rename_image():
     data = request.get_json(); old_base = data.get('old_base', '').strip(); new_base = data.get('new_base', '').strip()
@@ -1115,6 +1392,7 @@ def rename_image():
     trigger_redownload()
     return jsonify({'ok': True, 'new_base': new_base})
 
+
 @app.route('/toggle_orient', methods=['POST'])
 def toggle_orient():
     data = request.get_json(); base = data.get('base'); orient = data.get('orient'); val = bool(data.get('enabled', True))
@@ -1122,6 +1400,7 @@ def toggle_orient():
     enabled = load_enabled(); flags = _flags(enabled, base); flags[orient] = val
     enabled[base] = flags; save_enabled(enabled); trigger_redownload()
     return jsonify({'ok': True})
+
 
 @app.route('/update_caption', methods=['POST'])
 def update_caption():
@@ -1133,11 +1412,13 @@ def update_caption():
     enabled[base] = flags; save_enabled(enabled); trigger_redownload()
     return jsonify({'ok': True})
 
+
 @app.route('/reorder', methods=['POST'])
 def reorder():
     order = request.get_json().get('order', [])
     save_image_order(order); trigger_redownload()
     return jsonify({'ok': True})
+
 
 @app.route('/recrop', methods=['POST'])
 def recrop():
@@ -1630,4 +1911,3 @@ if __name__ == '__main__':
     try: app.run(host='0.0.0.0', port=port, debug=False)
     finally:
         if zeroconf_instance: zeroconf_instance.close()
-
