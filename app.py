@@ -782,24 +782,22 @@ def get_unified_index():
 def dither_floyd_steinberg(img_array, palette):
     h, w, _ = img_array.shape
     
-    # Identify original pure black and pure white pixels to lock them and prevent error bleeding
-    is_pure_black = (img_array[:, :, 0] == 0) & (img_array[:, :, 1] == 0) & (img_array[:, :, 2] == 0)
-    is_pure_white = (img_array[:, :, 0] == 255) & (img_array[:, :, 1] == 255) & (img_array[:, :, 2] == 255)
-    
     padded = np.pad(img_array, ((0, 1), (1, 1), (0, 0)), mode='edge').astype(np.float32)
     for y in range(h):
         for x in range(1, w + 1):
-            orig_y = y
-            orig_x = x - 1
+            old_val = padded[y, x].copy()
             
-            if is_pure_black[orig_y, orig_x]:
+            # Prevent color error bleeding into pure/clean black or white pixels
+            l1_dist_black = np.sum(np.abs(old_val - [0, 0, 0]))
+            l1_dist_white = np.sum(np.abs(old_val - [255, 255, 255]))
+            
+            if l1_dist_black < 15:
                 padded[y, x] = [0, 0, 0]
                 continue
-            elif is_pure_white[orig_y, orig_x]:
+            elif l1_dist_white < 15:
                 padded[y, x] = [255, 255, 255]
                 continue
                 
-            old_val = padded[y, x].copy()
             diff = palette - old_val; dist = np.sum(diff ** 2, axis=1); idx = np.argmin(dist)
             new_val = palette[idx]; padded[y, x] = new_val; err = old_val - new_val
             padded[y,     x + 1] += err * (7.0 / 16.0)
