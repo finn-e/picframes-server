@@ -16,7 +16,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy source code and firmware
 COPY app.py .
 COPY converters/ ./converters/
-COPY firmware/ ./firmware/
 
 # Expose server port
 EXPOSE 8080
