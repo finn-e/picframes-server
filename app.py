@@ -937,8 +937,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         .device-row:last-child { border-bottom: none; }
         .device-mac { font-family: monospace; font-size: 0.85rem; color: var(--muted); }
         .device-idx { color: var(--muted); font-size: 0.8rem; white-space: nowrap; }
+        .theme-selector-wrap { display: flex; align-items: center; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 12px; padding: 0.4rem 0.8rem; }
+        .theme-selector-wrap select { background: transparent; border: none; color: var(--text); font-weight: 600; cursor: pointer; font-family: inherit; outline: none; }
         #drop-zone { border: 2px dashed rgba(255,255,255,0.13); border-radius: 16px; padding: 2.5rem 2rem; text-align: center; cursor: pointer; background: var(--card); margin-bottom: 2rem; }
-        #drop-zone:hover { border-color: var(--accent); background: rgba(79,142,247,0.03); }
+        #drop-zone:hover { border-color: var(--accent); background: rgba(79, 142, 247, 0.05); }
         #upload-progress { display: none; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.5rem; margin-bottom: 1.5rem; }
         .progress-bar-wrap { background: rgba(255,255,255,0.08); border-radius: 4px; height: 6px; margin-top: 0.5rem; overflow: hidden; }
         .progress-bar { height: 100%; background: var(--accent); width: 0%; transition: width 0.2s; }
@@ -954,8 +956,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         .btn-queue { background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border); color: var(--muted); border-radius: 8px; padding: 0.35rem 0.75rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; margin-left: auto; }
         .btn-queue.active { background: var(--accent); color: #fff; }
         .img-name { font-weight: 600; font-size: 1rem; }
-        .theme-selector-wrap { display: flex; align-items: center; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 12px; padding: 0.4rem 0.8rem; }
-        .theme-selector-wrap select { background: transparent; border: none; color: var(--text); font-weight: 600; cursor: pointer; font-family: inherit; outline: none; }
         .triple-preview { display: grid; grid-template-columns: 1fr 1fr 1fr; border-bottom: 1px solid var(--border); }
         @media (max-width: 768px) { .triple-preview { grid-template-columns: 1fr; } }
         .preview-cell { padding: 1.2rem; display: flex; flex-direction: column; align-items: center; background: rgba(0,0,0,0.18); border-right: 1px solid var(--border); }
@@ -978,6 +978,16 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         .card-actions { padding: 0.8rem 1.4rem; display: flex; justify-content: flex-end; gap: 0.75rem; background: rgba(0,0,0,0.08); }
         #toast { position: fixed; bottom: 2rem; right: 2rem; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 0.75rem 1.25rem; opacity: 0; transition: opacity 0.3s; z-index: 999; pointer-events: none; backdrop-filter: blur(10px); }
         #toast.show { opacity: 1; }
+        
+        .tabs-bar { display: flex; gap: 0.5rem; border-bottom: 2px solid var(--border); margin: 2rem 0 1.5rem; overflow-x: auto; }
+        .tab-btn { padding: 0.75rem 1.25rem; border-radius: 12px 12px 0 0; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-bottom: none; color: var(--muted); font-weight: 600; cursor: pointer; position: relative; top: 2px; }
+        .tab-btn.active { background: var(--card); border-bottom: 2px solid var(--accent); color: var(--text); }
+        .image-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; margin-bottom: 1.25rem; }
+        .card-header { padding: 0.9rem 1.4rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 0.75rem; }
+        .img-name-wrap { flex: 1; display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+        .img-name { font-weight: 600; font-size: 1rem; cursor: pointer; border-bottom: 1px dashed transparent; }
+        .rename-hint { font-size: 0.75rem; color: var(--muted); }
+        .rename-input { font-weight: 600; font-size: 1rem; width: 100%; max-width: 300px; background: var(--input-bg); border: 1px solid var(--accent); border-radius: 6px; padding: 0.2rem 0.5rem; color: var(--text); }
     </style>
 </head>
 <body>
@@ -1003,7 +1013,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
             {% set ts = node_status.get(dev.mac.lower(), 0) %}
             {% set active_img = device_images.get(dev.mac.lower()) %}
             {% set ip_addr = device_ips.get(dev.mac.lower(), "DHCP") %}
-            <div class="status-node {% if ts > now_ts - 120 %}online{% endif %}">
+            <div class="status-node {% if ts > now_ts - 120 %}online{% endif %}" style="cursor: pointer;" onclick="switchToDeviceTab('{{ dev.mac }}')">
                 <div style="font-weight: 600;">{{ dev.name }}</div>
                 <div class="node-mac">{{ dev.mac }}</div>
                 <div style="font-size: 0.75rem; color: var(--muted);">{{ ip_addr }}</div>
@@ -1040,7 +1050,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
                         <label for="shuffle">Shuffle images in general pool</label>
                     </span>
                 </div>
-                <button type="submit" class="btn" style="margin-top:0.5rem;">💾 Save Settings</button>
+                <button type="submit" class="btn">💾 Save Settings</button>
                 {% for dev in config.devices %}
                 <input type="hidden" name="device_mac_{{ loop.index0 }}" value="{{ dev.mac }}">
                 <input type="hidden" name="device_orient_{{ loop.index0 }}" value="{{ dev.orientation }}">
@@ -1061,10 +1071,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
                 <div class="device-row" data-idx="{{ loop.index0 }}">
                     <span class="device-idx">#{{ loop.index0 }}</span>
                     <div class="device-name-wrap" style="flex:1;">
-                        <span style="font-weight:600;">{{ dev.name }}</span> &nbsp;
+                        <span style="font-weight:600; cursor:pointer;" onclick="startDeviceRename(this, '{{ dev.mac }}')">{{ dev.name }}</span> &nbsp;
                         <div class="orient-pill">
-                            <button type="button" class="{% if dev.orientation == 'landscape' %}active-l{% endif %}" onclick="setDeviceOrient('{{ dev.mac }}', 'landscape')">L</button>
-                            <button type="button" class="{% if dev.orientation == 'portrait' %}active-p{% endif %}" onclick="setDeviceOrient('{{ dev.mac }}', 'portrait')">P</button>
+                            <button type="button" class="{% if dev.orientation == 'landscape' %}active-l{% endif %}" onclick="setDeviceOrient('{{ dev.mac }}', 'landscape')">🌅 L</button>
+                            <button type="button" class="rm-or-btn {% if dev.orientation == 'portrait' %}active-p{% endif %}" onclick="setDeviceOrient('{{ dev.mac }}', 'portrait')">🤳 P</button>
+                        </div>
+                        <div class="mode-pill" style="margin-left: 0.25rem;">
+                            <button type="button" class="{% if dev.mode == 'group' %}active-g{% endif %}" onclick="setDeviceMode('{{ dev.mac }}', 'group')">👥 Group</button>
+                            <button type="button" class="{% if dev.mode == 'individual' %}active-i{% endif %}" onclick="setDeviceMode('{{ dev.mac }}', 'individual')">🖼️ Indiv</button>
                         </div>
                         <br><span class="device-mac">{{ dev.mac }}</span>
                     </div>
@@ -1098,15 +1112,18 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     </div>
 
     <div class="tabs-bar">
-        <div class="tab-btn active">General Playlist</div>
+        <div class="tab-btn active" data-tab="general">General Pool</div>
+        {% for dev in config.devices %}
+        <div class="tab-btn" data-tab="device-{{ dev.mac }}">{{ dev.name }}</div>
+        {% endfor %}
     </div>
 
-    <div class="tab-content">
+    <div class="tab-content" id="tab-content-general">
         <div id="image-list-general" class="image-list-container">
         {% for img in images %}
         <div class="image-card" data-base="{{ img.base }}">
             <div class="card-header">
-                <span class="img-name">{{ img.base.replace('_', ' ') }}</span>
+                <span class="img-name" onclick="startRename(this, '{{ img.base }}')">{{ img.base.replace('_', ' ') }}</span>
                 {% set is_queued = (state.queued_image and state.queued_image.base == img.base) %}
                 <button type="button" class="btn-queue {% if is_queued %}active{% endif %}" onclick="queueImage('{{ img.base }}')">
                     ⚡ {% if is_queued %}Queued Next{% else %}Queue Push{% endif %}
@@ -1124,7 +1141,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
                             <input type="checkbox" class="toggle" id="tog_l_{{ img.base }}" {% if img.l_on %}checked{% endif %} onchange="toggleOrient('{{ img.base }}', 'l', this.checked)">
                         </span>
                     </div>
-                    <img class="preview-img" src="{{ url_for('serve_image', filename=img.base + '_l.bmp') }}" onerror="this.style.display='none'">
+                    <div class="crop-container" data-base="{{ img.base }}" data-orient="l" data-offset="{{ img.offset_l }}" data-w="{{ img.orig_w }}" data-h="{{ img.orig_h }}">
+                        <img class="crop-bg-img" src="{{ url_for('serve_image', filename=img.base + '_dithered.png') }}" onerror="this.style.display='none'">
+                        <div class="crop-overlay-box"></div>
+                    </div>
                 </div>
                 <div class="preview-cell">
                     <div class="preview-label">
@@ -1133,7 +1153,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
                             <input type="checkbox" class="toggle" id="tog_p_{{ img.base }}" {% if img.p_on %}checked{% endif %} onchange="toggleOrient('{{ img.base }}', 'p', this.checked)">
                         </span>
                     </div>
-                    <img class="preview-img" src="{{ url_for('serve_image', filename=img.base + '_p.bmp') }}" onerror="this.style.display='none'">
+                    <div class="crop-container" data-base="{{ img.base }}" data-orient="p" data-offset="{{ img.offset_p }}" data-w="{{ img.orig_w }}" data-h="{{ img.orig_h }}">
+                        <img class="crop-bg-img" src="{{ url_for('serve_image', filename=img.base + '_dithered.png') }}" onerror="this.style.display='none'">
+                        <div class="crop-overlay-box"></div>
+                    </div>
                 </div>
             </div>
             <div class="card-actions">
@@ -1145,6 +1168,15 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         {% endfor %}
         </div>
     </div>
+
+    {% for dev in config.devices %}
+    <div class="tab-content" id="tab-content-device-{{ dev.mac }}" style="display:none;">
+        <div class="image-list-container">
+            <h3>Individual Lists for Device: {{ dev.name }}</h3>
+            <p style="color:var(--muted); font-size:0.9rem; margin-bottom:1rem;">To configure individual playlists, drop media into the dynamic matrix array pool.</p>
+        </div>
+    </div>
+    {% endfor %}
 </div>
 
 <div id="toast"></div>
@@ -1199,6 +1231,16 @@ function setDeviceOrient(mac, orientation) {
     });
 }
 
+function setDeviceMode(mac, mode) {
+    fetch('/device_mode', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({mac, mode})
+    }).then(r => r.json()).then(d => {
+        if(d.ok) { toast('Device mode altered'); setTimeout(() => window.location.reload(), 500); }
+    });
+}
+
 function queueImage(base) {
     fetch('/api/queue', {
         method: 'POST',
@@ -1212,15 +1254,143 @@ function queueImage(base) {
     });
 }
 
-function removeDevice(idx) {
-    document.querySelector(`.device-row[data-idx="${idx}"]`)?.remove();
-    deviceCount = document.querySelectorAll('.device-row').length;
-    document.getElementById('device_count').value = deviceCount;
+function startRename(span, base) {
+    const wrap = span.closest('.img-name-wrap') || span.parentElement;
+    const input = document.createElement('input');
+    let finished = false;
+    input.type = 'text'; input.className = 'rename-input'; input.value = base.replaceAll('_', ' ');
+    span.style.display = 'none';
+    wrap.insertBefore(input, span);
+    input.focus(); input.select();
+    function commit() {
+        if (finished) return; finished = true;
+        const newBase = input.value.trim();
+        if (!newBase || newBase.replaceAll(' ', '_') === base) { cancel(); return; }
+        fetch('/rename', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({old_base: base, new_base: newBase})
+        }).then(r => r.json()).then(d => {
+            if (d.ok) { toast(`Renamed to ${newBase}`); window.location.reload(); }
+            else { toast(`Error: ${d.error}`); cancel(); }
+        });
+    }
+    function cancel() { if (finished) return; finished = true; input.remove(); span.style.display = ''; }
+    input.addEventListener('keydown', ev => { if (ev.key === 'Enter') commit(); if (ev.key === 'Escape') cancel(); });
+    input.addEventListener('blur', commit);
 }
 
-window.addEventListener('DOMContentLoaded', () => {
-    applyTheme(localStorage.getItem('picframes-theme') || 'default');
+function startDeviceRename(span, mac) {
+    const wrap = span.parentElement;
+    const input = document.createElement('input');
+    let finished = false;
+    input.type = 'text'; input.className = 'rename-input'; input.value = span.textContent;
+    span.style.display = 'none';
+    wrap.insertBefore(input, span);
+    input.focus(); input.select();
+    function commit() {
+        if (finished) return; finished = true;
+        const newName = input.value.trim();
+        if (!newName || newName === span.textContent) { cancel(); return; }
+        fetch('/device_rename', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({mac, name: newName})
+        }).then(r => r.json()).then(d => {
+            if (d.ok) { window.location.reload(); }
+            else { cancel(); }
+        });
+    }
+    function cancel() { if (finished) return; finished = true; input.remove(); span.style.display = ''; }
+    input.addEventListener('keydown', ev => { if (ev.key === 'Enter') commit(); if (ev.key === 'Escape') cancel(); });
+    input.addEventListener('blur', commit);
+}
+
+function removeDevice(idx) {
+    document.querySelector(`.device-row[data-idx="${idx}"]`)?.remove();
+    document.getElementById('device_count').value = document.querySelectorAll('.device-row').length;
+}
+
+function switchTab(tabId) {
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        if (btn.dataset.tab === tabId) btn.classList.add('active');
+        else btn.classList.remove('active');
+    });
+    document.querySelectorAll('.tab-content').forEach(content => {
+        if (content.id === `tab-content-${tabId}`) content.style.display = 'block';
+        else content.style.display = 'none';
+    });
+}
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => { switchTab(btn.dataset.tab); });
 });
+
+function switchToDeviceTab(mac) { switchTab(`device-${mac}`); }
+
+function updateCropOverlay(container) {
+    const orient = container.dataset.orient;
+    const offset = parseFloat(container.dataset.offset);
+    const w = parseFloat(container.dataset.w);
+    const h = parseFloat(container.dataset.h);
+    const r = w / h;
+    const box = container.querySelector('.crop-overlay-box');
+    let widthPct, heightPct, leftPct, topPct;
+    if (orient === 'l') {
+        const targetR = 5 / 3;
+        if (r <= targetR) { widthPct = 100; heightPct = (r / targetR) * 100; leftPct = 0; topPct = offset * (100 - heightPct); }
+        else { heightPct = 100; widthPct = (targetR / r) * 100; topPct = 0; leftPct = 50 - (widthPct / 2); }
+    } else {
+        const targetR = 3 / 5;
+        if (r >= targetR) { heightPct = 100; widthPct = (targetR / r) * 100; topPct = 0; leftPct = offset * (100 - widthPct); }
+        else { widthPct = 100; heightPct = (r / targetR) * 100; leftPct = 0; topPct = 50 - (heightPct / 2); }
+    }
+    box.style.width = widthPct + '%'; box.style.height = heightPct + '%'; box.style.left = leftPct + '%'; box.style.top = topPct + '%';
+}
+
+document.querySelectorAll('.crop-container').forEach(container => {
+    updateCropOverlay(container);
+    const box = container.querySelector('.crop-overlay-box');
+    let isDragging = false; let startY = 0; let startX = 0; let startOffset = 0;
+    box.addEventListener('mousedown', e => {
+        e.preventDefault(); e.stopPropagation(); isDragging = true;
+        startY = e.clientY; startX = e.clientX; startOffset = parseFloat(container.dataset.offset);
+    });
+    window.addEventListener('mousemove', e => {
+        if (!isDragging) return;
+        const containerRect = container.getBoundingClientRect();
+        const orient = container.dataset.orient;
+        const w = parseFloat(container.dataset.w); const h = parseFloat(container.dataset.h); const r = w / h;
+        let deltaOffset = 0;
+        if (orient === 'l') {
+            const targetR = 5 / 3;
+            if (r <= targetR) {
+                const heightPct = (r / targetR) * 100;
+                const maxDragPx = containerRect.height * (1 - heightPct / 100);
+                if (maxDragPx > 0) { deltaOffset = (e.clientY - startY) / maxDragPx; }
+            }
+        } else {
+            const targetR = 3 / 5;
+            if (r >= targetR) {
+                const widthPct = (targetR / r) * 100;
+                const maxDragPx = containerRect.width * (1 - widthPct / 100);
+                if (maxDragPx > 0) { deltaOffset = (e.clientX - startX) / maxDragPx; }
+            }
+        }
+        let newOffset = Math.max(0, Math.min(1, startOffset + deltaOffset));
+        container.dataset.offset = newOffset; updateCropOverlay(container);
+    });
+    window.addEventListener('mouseup', () => {
+        if (!isDragging) return; isDragging = false;
+        fetch('/recrop', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({base: container.dataset.base, orient: container.dataset.orient, offset: parseFloat(container.dataset.offset)})
+        }).then(r => r.json()).then(d => { if(d.ok) toast('Asset re-cropped successfully'); });
+    });
+});
+
+window.addEventListener('DOMContentLoaded', () => { applyTheme(localStorage.getItem('picframes-theme') || 'default'); });
 function applyTheme(t) { document.documentElement.setAttribute('data-theme', t); const s = document.getElementById('theme-select'); if(s) s.value = t; }
 </script>
 </body>
@@ -1438,253 +1608,13 @@ def recrop():
     return jsonify({'ok': False, 'error': 'Re-conversion failed'}), 500
 
 
-@app.route('/config', methods=['POST'])
-def update_config():
-    cfg = load_config()
-    try:
-        cfg['timer']       = int(request.form.get('timer', cfg['timer']))
-        cfg['shuffle']     = 'shuffle' in request.form
-        cfg['sync_images'] = 'sync_images' in request.form
-    except Exception as e: logger.error(f"Config parse: {e}")
-    count = int(request.form.get('device_count', 0)); devices = []
-    old_devices_map = {d['mac'].lower(): d for d in cfg.get('devices', []) if d.get('mac')}
-    for i in range(count):
-        mac = request.form.get(f'device_mac_{i}', '').strip()
-        if mac:
-            old = old_devices_map.get(mac.lower(), {})
-            devices.append({
-                'mac': mac, 'orientation': request.form.get(f'device_orient_{i}', 'landscape'),
-                'debug': request.form.get(f'device_debug_{i}', '0') == '1', 'name': old.get('name', mac),
-                'mode': old.get('mode', 'group'), 'shuffle': request.form.get(f'device_shuffle_{i}', '0') == '1',
-                'flip_l': request.form.get(f'device_flip_l_{i}', '0') == '1', 'flip_p': request.form.get(f'device_flip_p_{i}', '0') == '1',
-                'images': old.get('images', [])
-            })
-    if devices: cfg['devices'] = devices
-    save_config(cfg); trigger_redownload()
-    return redirect(url_for('index'))
-
-
-@app.route('/devices', methods=['POST'])
-def update_devices():
-    cfg = load_config(); count = int(request.form.get('device_count', 0)); devices = []
-    old_devices_map = {d['mac'].lower(): d for d in cfg.get('devices', []) if d.get('mac')}
-    for i in range(count):
-        mac = request.form.get(f'mac_{i}', '').strip()
-        if mac:
-            old = old_devices_map.get(mac.lower(), {})
-            devices.append({
-                'mac': mac, 'orientation': request.form.get(f'orient_{i}', 'landscape'),
-                'debug': request.form.get(f'debug_{i}', '0') == '1', 'name': old.get('name', mac),
-                'mode': old.get('mode', 'group'), 'shuffle': request.form.get(f'shuffle_{i}', '0') == '1',
-                'flip_l': request.form.get(f'flip_l_{i}', '0') == '1', 'flip_p': request.form.get(f'flip_p_{i}', '0') == '1',
-                'images': old.get('images', [])
-            })
-    cfg['devices'] = devices; save_config(cfg); trigger_redownload()
-    return redirect(url_for('index'))
-
-
-@app.route('/device_orientation', methods=['POST'])
-def device_orientation():
-    data = request.get_json(); mac = data.get('mac'); orientation = data.get('orientation')
-    if not mac or orientation not in ('landscape', 'portrait'): return jsonify({'ok': False}), 400
-    cfg = load_config()
-    for dev in cfg.get('devices', []):
-        if dev['mac'].lower() == mac.lower(): dev['orientation'] = orientation; trigger_redownload(mac); break
-    save_config(cfg)
-    return jsonify({'ok': True, 'orientation': orientation})
-
-
-@app.route('/api/queue', methods=['POST'])
-def queue_image_api():
-    data = request.get_json() or {}; base = data.get('base'); source = data.get('source')
-    if not base or not source: return jsonify({'ok': False, 'error': 'Missing base or source'}), 400
-    with _state_lock:
-        state = load_state(); current_queued = state.get('queued_image')
-        if current_queued and current_queued.get('base') == base and current_queued.get('source') == source:
-            state['queued_image'] = None; action = 'dequeued'
-        else:
-            state['queued_image'] = {'base': base, 'source': source}; action = 'queued'
-        _reset_round(state); state.setdefault('redownload', {})
-        if source == 'general':
-            cfg = load_config()
-            for dev in cfg.get('devices', []):
-                if dev.get('mode', 'group') == 'group' and dev.get('mac'): state['redownload'][dev['mac'].lower()] = True
-        else:
-            state['redownload'][source.lower()] = True
-        save_state(state)
-    return jsonify({'ok': True, 'action': action, 'queued_image': state['queued_image']})
-
-
-@app.route('/device_shuffle', methods=['POST'])
-def device_shuffle():
-    data = request.get_json() or {}; mac = data.get('mac'); shuffle_val = bool(data.get('shuffle', False))
-    if not mac: return jsonify({'ok': False, 'error': 'mac parameter required'}), 400
-    cfg = load_config(); device_found = False
-    for dev in cfg.get('devices', []):
-        if dev['mac'].lower() == mac.lower(): dev['shuffle'] = shuffle_val; device_found = True; trigger_redownload(mac); break
-    if not device_found: return jsonify({'ok': False, 'error': 'device not found'}), 404
-    save_config(cfg)
-    return jsonify({'ok': True, 'shuffle': shuffle_val})
-
-
-@app.route('/device_flip', methods=['POST'])
-def device_flip():
-    data = request.get_json() or {}; mac = data.get('mac'); orient_type = data.get('orient'); flip_val = bool(data.get('flip', False))
-    if not mac or orient_type not in ('l', 'p'): return jsonify({'ok': False, 'error': 'Missing parameters'}), 400
-    cfg = load_config(); device_found = False
-    for dev in cfg.get('devices', []):
-        if dev['mac'].lower() == mac.lower():
-            if orient_type == 'l': dev['flip_l'] = flip_val
-            else: dev['flip_p'] = flip_val
-            device_found = True; trigger_redownload(mac); break
-    if not device_found: return jsonify({'ok': False, 'error': 'device not found'}), 404
-    save_config(cfg)
-    return jsonify({'ok': True, 'flip': flip_val})
-
-
-@app.route('/device_debug', methods=['GET', 'POST'])
-def device_debug():
-    if request.method == 'POST':
-        if request.is_json:
-            data = request.get_json() or {}; mac = data.get('mac'); dbg_val = bool(data.get('debug', False))
-        else:
-            mac = request.form.get('mac'); dbg_val = request.form.get('debug') in ('1', 'true', 'True', True)
-    else:
-        mac = request.args.get('mac'); dbg_val = request.args.get('debug') in ('1', 'true', 'True', True)
-    if not mac: return jsonify({'ok': False, 'error': 'mac parameter required'}), 400
-    cfg = load_config(); device_found = False
-    for dev in cfg.get('devices', []):
-        if dev['mac'].lower() == mac.lower(): dev['debug'] = dbg_val; device_found = True; break
-    if not device_found: return jsonify({'ok': False, 'error': 'device not found'}), 404
-    save_config(cfg)
-    return jsonify({'ok': True, 'debug': dbg_val})
-
-
-@app.route('/device_rename', methods=['POST'])
-def device_rename():
-    data = request.get_json(); mac = data.get('mac'); new_name = data.get('name', '').strip()
-    if not mac or not new_name: return jsonify({'ok': False, 'error': 'Missing fields'}), 400
-    cfg = load_config()
-    for dev in cfg.get('devices', []):
-        if dev['mac'].lower() == mac.lower(): dev['name'] = new_name; break
-    save_config(cfg); return jsonify({'ok': True})
-
-
-@app.route('/device_mode', methods=['POST'])
-def device_mode():
-    data = request.get_json(); mac = data.get('mac'); mode = data.get('mode')
-    if not mac or mode not in ('group', 'individual'): return jsonify({'ok': False}), 400
-    cfg = load_config()
-    for dev in cfg.get('devices', []):
-        if dev['mac'].lower() == mac.lower():
-            if mode == 'individual' and not dev.get('images', []): return jsonify({'ok': False, 'error': 'No images assigned'}), 400
-            dev['mode'] = mode; trigger_redownload(mac); break
-    save_config(cfg); return jsonify({'ok': True, 'mode': mode})
-
-
-@app.route('/device_assign_image', methods=['POST'])
-def device_assign_image():
-    data = request.get_json(); mac = data.get('mac'); base = data.get('base')
-    if not mac or not base: return jsonify({'ok': False, 'error': 'Invalid parameters'}), 400
-    cfg = load_config(); enabled = load_enabled(); flags = _flags(enabled, base)
-    dev = next((d for d in cfg.get('devices', []) if d['mac'].lower() == mac.lower()), None)
-    if not dev: return jsonify({'ok': False, 'error': 'Device not found'}), 404
-    
-    dev_imgs = dev.setdefault('images', [])
-    if not any(img['base'] == base for img in dev_imgs):
-        dev_imgs.append({'base': base, 'l': flags['l'], 'p': flags['p']})
-    flags['l'] = False; flags['p'] = False; enabled[base] = flags
-    
-    save_enabled(enabled); save_config(cfg); trigger_redownload(mac)
-    return jsonify({'ok': True})
-
-
-@app.route('/device_remove_image', methods=['POST'])
-def device_remove_image():
-    data = request.get_json(); mac = data.get('mac'); base = data.get('base')
-    if not mac or not base: return jsonify({'ok': False, 'error': 'Invalid parameters'}), 400
-    
-    cfg = load_config()
-    for dev in cfg.get('devices', []):
-        if dev['mac'].lower() == mac.lower():
-            dev['images'] = [img for img in dev.get('images', []) if img['base'] != base]
-            if not dev['images']: dev['mode'] = 'group'
-            trigger_redownload(mac); break
-    save_config(cfg); return jsonify({'ok': True})
-
-
-@app.route('/device_move_image', methods=['POST'])
-def device_move_image():
-    data = request.get_json(); from_mac = data.get('from_mac'); to_mac = data.get('to_mac'); base = data.get('base')
-    if not from_mac or not to_mac or not base: return jsonify({'ok': False, 'error': 'Invalid parameters'}), 400
-    
-    cfg = load_config()
-    from_dev = next((d for d in cfg.get('devices', []) if d['mac'].lower() == from_mac.lower()), None)
-    to_dev = next((d for d in cfg.get('devices', []) if d['mac'].lower() == to_mac.lower()), None)
-    
-    if not from_dev or not to_dev:
-        return jsonify({'ok': False, 'error': 'Device not found'}), 404
-        
-    target_img = next((img for img in from_dev.get('images', []) if img['base'] == base), None)
-    if not target_img:
-        return jsonify({'ok': False, 'error': 'Image not found on source device'}), 404
-        
-    from_dev['images'] = [img for img in from_dev['images'] if img['base'] != base]
-    if not from_dev['images']: from_dev['mode'] = 'group'
-    to_dev.setdefault('images', []).append({'base': base, 'l': target_img.get('l', True), 'p': target_img.get('p', True)})
-    save_config(cfg); trigger_redownload(from_mac); trigger_redownload(to_mac)
-    return jsonify({'ok': True})
-
-
-@app.route('/device_reorder_images', methods=['POST'])
-def device_reorder_images():
-    data = request.get_json(); mac = data.get('mac'); order = data.get('order', [])
-    if not mac: return jsonify({'ok': False, 'error': 'Invalid parameters'}), 400
-    cfg = load_config()
-    for dev in cfg.get('devices', []):
-        if dev['mac'].lower() == mac.lower():
-            img_map = {img['base']: img for img in dev.get('images', [])}
-            dev['images'] = [img_map[b] for b in order if b in img_map]
-            trigger_redownload(mac); break
-    save_config(cfg); return jsonify({'ok': True})
-
-
-@app.route('/device_image_toggle_orient', methods=['POST'])
-def device_image_toggle_orient():
-    data = request.get_json(); mac = data.get('mac'); base = data.get('base'); orient = data.get('orient'); enabled = bool(data.get('enabled'))
-    if not mac or not base or orient not in ('l', 'p'): return jsonify({'ok': False, 'error': 'Invalid parameters'}), 400
-    cfg = load_config()
-    for dev in cfg.get('devices', []):
-        if dev['mac'].lower() == mac.lower():
-            for img in dev.get('images', []):
-                if img['base'] == base: img[orient] = enabled; trigger_redownload(mac); break
-            break
-    save_config(cfg); return jsonify({'ok': True})
-
-# ---------------------------------------------------------------------------
-# Static serving
-# ---------------------------------------------------------------------------
-
-@app.route('/serve/originals/<path:filename>')
-def serve_original(filename): return send_from_directory(ORIGINALS_DIR, filename)
-
-@app.route('/serve/images/<path:filename>')
-def serve_image(filename): return send_from_directory(IMAGES_DIR, filename)
-
-@app.route('/images/<path:filename>')
-def download_image(filename):
-    if not filename.lower().endswith('.bmp'): return "Invalid format", 400
-    return send_from_directory(IMAGES_DIR, filename)
-
-# ---------------------------------------------------------------------------
-# Device API
-# ---------------------------------------------------------------------------
-
+@app.route('/api/daily-config', methods=['GET'])
 @app.route('/api/config', methods=['GET'])
 def api_config():
     cfg = load_config(); now = datetime.now()
     cfg['current_date'] = now.strftime('%Y-%m-%d'); cfg['timestamp'] = int(now.timestamp())
     return jsonify(cfg)
+
 
 @app.route('/api/images', methods=['GET'])
 def api_images():
