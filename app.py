@@ -10,7 +10,7 @@ import threading
 from datetime import datetime
 from PIL import Image, ImageOps
 import numpy as np
-from flask import Flask, request, jsonify, render_template_string, send_from_directory, redirect, url_for, session, Response
+from flask import Flask, request, jsonify, render_template_string, redirect, url_for, session, Response, send_from_directory
 from zeroconf import IPVersion, Zeroconf, ServiceInfo
 import socket
 import sqlite3
@@ -31,7 +31,7 @@ LOGIN_HTML = """<!DOCTYPE html>
 <html>
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PicTracks Controller Login</title>
+  <title>PicFrames Controller Login</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap');
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -438,8 +438,6 @@ def init_db():
         conn.commit()
     conn.close()
 
-init_db()
-
 def load_config():
     defaults = {
         "timer": 900, "wake_timeout": 45,
@@ -837,8 +835,8 @@ def _build_shuffle_assignments(cfg, state):
             else:
                 pool = [b for b in get_active_bases(orientation) if b not in used]
                 if not pool: pool = get_active_bases(orientation)
-            if pool:
-                chosen = random.choice(pool); used.add(chosen); assignments[mac] = chosen
+        if pool:
+            chosen = random.choice(pool); used.add(chosen); assignments[mac] = chosen
     state['round_assignments'] = assignments
 
 def _target_for_device(cfg, state, device_mac, device_idx, num_devices):
@@ -884,3 +882,751 @@ HTML_TEMPLATE = r"""
     </script>
     <title>PicFrames Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #080d1a; --bg-gradient: radial-gradient(ellipse at 20% 0%, #1a2545 0%, var(--bg) 60%);
+            --card: rgba(16,24,48,0.65); --border: rgba(255,255,255,0.07);
+            --text: #f1f3f9; --muted: #8b95ae; --accent: #4f8ef7; --accent-h: #3371e0;
+            --danger: #ef4444; --danger-h: #dc2626; --success: #22c55e; --warning: #f59e0b;
+            --input-bg: rgba(0,0,0,0.4);
+        }
+        [data-theme="light"] {
+            --bg: #f4f6fa; --bg-gradient: linear-gradient(135deg, #eef2f7 0%, #f4f6fa 100%);
+            --card: #ffffff; --border: rgba(0, 0, 0, 0.08); --text: #1e293b; --muted: #64748b;
+            --accent: #4f46e5; --accent-h: #4338ca; --input-bg: #ffffff;
+        }
+        [data-theme="really-dark"] {
+            --bg: #000000; --bg-gradient: #000000; --card: #0d0d0d; --border: #262626;
+            --text: #ffffff; --muted: #a3a3a3; --accent: #a855f7; --accent-h: #9333ea; --input-bg: #000000;
+        }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Outfit', sans-serif; background: var(--bg-gradient); color: var(--text); min-height: 100vh; padding: 2rem 1.5rem; }
+        .container { width: 100%; max-width: 1400px; margin: 0 auto; }
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border); }
+        h1 { font-size: 2rem; font-weight: 700; background: linear-gradient(135deg, #60a5fa, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .version-tag { font-size: 0.85rem; font-weight: 600; background: rgba(255, 255, 255, 0.08); border: 1px solid var(--border); color: var(--muted); padding: 0.15rem 0.5rem; border-radius: 6px; display: inline-block; margin-left: 0.6rem; }
+        .subtitle { color: var(--muted); font-size: 0.9rem; margin-top: 0.2rem; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
+        @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 1.5rem; backdrop-filter: blur(14px); }
+        .card-title { font-size: 0.85rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 1.2rem; display: flex; align-items: center; gap: 0.5rem; }
+        label { font-weight: 500; color: var(--muted); font-size: 0.9rem; }
+        input[type="number"], input[type="text"] { background: rgba(0,0,0,0.35); border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.75rem; color: var(--text); font-size: 0.95rem; outline: none; }
+        .form-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+        .toggle-wrap { display: flex; align-items: center; gap: 0.5rem; }
+        .toggle { appearance: none; width: 38px; height: 22px; background: rgba(255,255,255,0.12); border-radius: 11px; position: relative; cursor: pointer; border: 1px solid var(--border); }
+        .toggle::after { content: ''; position: absolute; width: 16px; height: 16px; border-radius: 50%; background: white; top: 2px; left: 2px; transition: transform 0.25s; }
+        .toggle:checked { background: var(--accent); border-color: var(--accent); }
+        .toggle:checked::after { transform: translateX(16px); }
+        .btn { background: var(--accent); color: white; border: none; border-radius: 8px; padding: 0.55rem 1.1rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; }
+        .btn-danger { background: var(--danger); }
+        .btn-ghost { background: rgba(255,255,255,0.07); color: var(--text); border: 1px solid var(--border); }
+        .btn-sm { padding: 0.35rem 0.7rem; font-size: 0.82rem; }
+        .btn-warning { background: rgba(245,158,11,0.2); color: var(--warning); border: 1px solid rgba(245,158,11,0.3); }
+        .orient-pill { display: inline-flex; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+        .orient-pill button { background: rgba(0,0,0,0.25); border: none; cursor: pointer; padding: 0.3rem 0.6rem; color: var(--muted); font-size: 0.8rem; font-weight: 600; }
+        .orient-pill button.active-l { background: rgba(79,142,247,0.3); color: var(--accent); }
+        .orient-pill button.active-p { background: rgba(167,139,250,0.3); color: #a78bfa; }
+        .mode-pill { display: inline-flex; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+        .mode-pill button { background: rgba(0,0,0,0.25); border: none; cursor: pointer; padding: 0.3rem 0.6rem; color: var(--muted); font-size: 0.8rem; font-weight: 600; }
+        .mode-pill button.active-g { background: rgba(34,197,94,0.3); color: var(--success); }
+        .mode-pill button.active-i { background: rgba(79,142,247,0.3); color: var(--accent); }
+        .device-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.65rem 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+        #drop-zone { border: 2px dashed rgba(255,255,255,0.13); border-radius: 16px; padding: 2.5rem 2rem; text-align: center; cursor: pointer; background: var(--card); margin-bottom: 2rem; }
+        #upload-progress { display: none; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.5rem; margin-bottom: 1.5rem; }
+        .progress-bar-wrap { background: rgba(255,255,255,0.08); border-radius: 4px; height: 6px; margin-top: 0.5rem; overflow: hidden; }
+        .progress-bar { height: 100%; background: var(--accent); border-radius: 4px; transition: width 0.3s; }
+        .subtitle { color: var(--muted); font-size: 0.9rem; margin-top: 0.2rem; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <div>
+            <h1>PicFrames Controller <span class="version-tag">v{{ version }}</span></h1>
+            <div class="subtitle">E-Paper Frame Fleet Manager &nbsp;·&nbsp; {{ images|length }} image(s)</div>
+        </div>
+    </header>
+</div>
+</body>
+</html>
+"""
+
+# ---------------------------------------------------------------------------
+# Web routes
+# ---------------------------------------------------------------------------
+
+@app.route('/')
+def index():
+    config  = load_config()
+    state   = load_state()
+    order   = load_image_order()
+    enabled = load_enabled()
+    crops   = load_crops()
+
+    images = []
+    for base in order:
+        original_name = None
+        for f in os.listdir(ORIGINALS_DIR):
+            if os.path.splitext(f)[0] == base: original_name = f; break
+        if original_name is None: continue
+
+        has_l = os.path.exists(os.path.join(IMAGES_DIR, base + LANDSCAPE_SUFFIX))
+        has_p = os.path.exists(os.path.join(IMAGES_DIR, base + PORTRAIT_SUFFIX))
+        flags = _flags(enabled, base)
+
+        ensure_dithered_original(base)
+
+        try:
+            with Image.open(os.path.join(ORIGINALS_DIR, original_name)) as img_obj:
+                orig_w, orig_h = img_obj.size
+        except Exception:
+            orig_w, orig_h = 800, 480
+
+        crop_offsets = crops.get(base, {"l": 0.5, "p": 0.5})
+
+        images.append({
+            'base': base, 'original_name': original_name,
+            'has_l': has_l, 'has_p': has_p,
+            'l_on': flags["l"], 'p_on': flags["p"], 'title_on': flags.get("title", False),
+            'caption_mode': flags.get("caption_mode", 'none'),
+            'description': flags.get("description", ''),
+            'orig_w': orig_w, 'orig_h': orig_h,
+            'offset_l': crop_offsets.get("l", 0.5),
+            'offset_p': crop_offsets.get("p", 0.5),
+        })
+
+    image_by_base = {img['base']: img for img in images}
+
+    now_ts      = int(time.time())
+    node_status = state.get('last_seen', {})
+    device_ips = state.get('device_ips', {})
+    device_images = state.get('device_images', {})
+    phase       = state.get('phase', PHASE_GATHERING)
+
+    return render_template_string(HTML_TEMPLATE, images=images, config=config, state=state,
+                                  node_status=node_status, device_ips=device_ips,
+                                  device_images=device_images, now_ts=now_ts, phase=phase,
+                                  image_by_base=image_by_base, version=SERVER_VERSION)
+
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    for file in request.files.getlist('files'):
+        if not file.filename: continue
+        _, ext = os.path.splitext(file.filename)
+        if ext.lower() not in ALLOWED_EXTENSIONS: continue
+        original_path = os.path.join(ORIGINALS_DIR, file.filename)
+        file.save(original_path)
+        base, _ = os.path.splitext(file.filename)
+        convert_image(original_path, base)
+    return redirect(url_for('index'))
+
+@app.route('/convert/<filename>', methods=['POST'])
+def convert_file(filename):
+    original_path = os.path.join(ORIGINALS_DIR, filename)
+    if not os.path.exists(original_path): return "File not found", 404
+    base, _ = os.path.splitext(filename)
+    return redirect(url_for('index')) if convert_image(original_path, base) else ("Conversion failed", 500)
+
+@app.route('/convert_all', methods=['POST'])
+def convert_all():
+    count = 0
+    for f in sorted(os.listdir(ORIGINALS_DIR)):
+        if os.path.splitext(f)[1].lower() in ALLOWED_EXTENSIONS:
+            base = os.path.splitext(f)[0]
+            convert_image(os.path.join(ORIGINALS_DIR, f), base)
+            count += 1
+    return redirect(url_for('index'))
+
+@app.route('/delete/<filename>', methods=['POST'])
+def delete_file(filename):
+    base, _ = os.path.splitext(filename)
+    cfg = load_config(); assigned_to_any_device = False
+    for dev in cfg.get('devices', []):
+        for img in dev.get('images', []):
+            if img.get('base') == base: assigned_to_any_device = True; break
+            
+    if assigned_to_any_device:
+        order = load_image_order()
+        if base in order: order.remove(base); save_image_order(order)
+    else:
+        for path in [
+            os.path.join(ORIGINALS_DIR, filename),
+            os.path.join(IMAGES_DIR, base + LANDSCAPE_SUFFIX),
+            os.path.join(IMAGES_DIR, base + PORTRAIT_SUFFIX),
+            os.path.join(IMAGES_DIR, base + '_dithered.png'),
+            os.path.join(IMAGES_DIR, base + '_l.bin'),
+            os.path.join(IMAGES_DIR, base + '_p.bin'),
+        ]:
+            if os.path.exists(path): os.remove(path)
+
+        order = load_image_order()
+        if base in order: order.remove(base); save_image_order(order)
+        enabled = load_enabled(); enabled.pop(base, None); save_enabled(enabled)
+        crops = load_crops(); crops.pop(base, None); save_crops(crops)
+
+        changed = False
+        for dev in cfg.get('devices', []):
+            old_len = len(dev.get('images', []))
+            dev['images'] = [img for img in dev.get('images', []) if img['base'] != base]
+            if len(dev['images']) != old_len:
+                changed = True
+                if not dev['images']: dev['mode'] = 'group'
+        if changed: save_config(cfg)
+
+    trigger_redownload()
+    return redirect(url_for('index'))
+
+@app.route('/rename', methods=['POST'])
+def rename_image():
+    data = request.get_json(); old_base = data.get('old_base', '').strip(); new_base = data.get('new_base', '').strip()
+    if not old_base or not new_base: return jsonify({'ok': False, 'error': 'Missing name'}), 400
+    new_base = new_base.replace(' ', '_')
+    if len(new_base) > 78: return jsonify({'ok': False, 'error': 'Title too long'}), 400
+
+    for f in os.listdir(ORIGINALS_DIR):
+        base, ext = os.path.splitext(f)
+        if base == old_base:
+            os.rename(os.path.join(ORIGINALS_DIR, f), os.path.join(ORIGINALS_DIR, new_base + ext)); break
+
+    for old_f, new_f in [
+        (old_base + LANDSCAPE_SUFFIX, new_base + LANDSCAPE_SUFFIX),
+        (old_base + PORTRAIT_SUFFIX,  new_base + PORTRAIT_SUFFIX),
+        (old_base + '_l.bin',         new_base + '_l.bin'),
+        (old_base + '_p.bin',         new_base + '_p.bin'),
+        (old_base + '_dithered.png',  new_base + '_dithered.png'),
+    ]:
+        old_p, new_p = os.path.join(IMAGES_DIR, old_f), os.path.join(IMAGES_DIR, new_f)
+        if os.path.exists(old_p): os.rename(old_p, new_p)
+
+    order = load_image_order()
+    if old_base in order: order[order.index(old_base)] = new_base; save_image_order(order)
+    enabled = load_enabled()
+    if old_base in enabled: enabled[new_base] = enabled.pop(old_base); save_enabled(enabled)
+    crops = load_crops()
+    if old_base in crops: crops[new_base] = crops.pop(old_base); save_crops(crops)
+
+    cfg = load_config(); changed = False
+    for dev in cfg.get('devices', []):
+        for img in dev.get('images', []):
+            if img['base'] == old_base: img['base'] = new_base; changed = True
+    if changed: save_config(cfg)
+
+    trigger_redownload()
+    return jsonify({'ok': True, 'new_base': new_base})
+
+@app.route('/toggle_orient', methods=['POST'])
+def toggle_orient():
+    data = request.get_json(); base = data.get('base'); orient = data.get('orient'); val = bool(data.get('enabled', True))
+    if not base or orient not in ('l', 'p', 'title'): return jsonify({'ok': False}), 400
+    enabled = load_enabled(); flags = _flags(enabled, base); flags[orient] = val
+    enabled[base] = flags; save_enabled(enabled); trigger_redownload()
+    return jsonify({'ok': True})
+
+@app.route('/update_caption', methods=['POST'])
+def update_caption():
+    data = request.get_json() or {}; base = data.get('base'); mode = data.get('caption_mode'); desc = data.get('description')
+    if not base: return jsonify({'ok': False, 'error': 'Missing base'}), 400
+    enabled = load_enabled(); flags = _flags(enabled, base)
+    if mode is not None: flags['caption_mode'] = mode
+    if desc is not None: flags['description'] = desc
+    enabled[base] = flags; save_enabled(enabled); trigger_redownload()
+    return jsonify({'ok': True})
+
+@app.route('/reorder', methods=['POST'])
+def reorder():
+    order = request.get_json().get('order', [])
+    save_image_order(order); trigger_redownload()
+    return jsonify({'ok': True})
+
+@app.route('/recrop', methods=['POST'])
+def recrop():
+    data = request.get_json(); base = data.get('base'); orient = data.get('orient'); offset = data.get('offset')
+    if not base or orient not in ('l', 'p') or offset is None: return jsonify({'ok': False, 'error': 'Invalid parameters'}), 400
+    crops = load_crops()
+    if base not in crops: crops[base] = {"l": 0.5, "p": 0.5}
+    crops[base][orient] = max(0.0, min(1.0, float(offset))); save_crops(crops)
+
+    original_name = None
+    for f in os.listdir(ORIGINALS_DIR):
+        if os.path.splitext(f)[0] == base: original_name = f; break
+    if not original_name: return jsonify({'ok': False, 'error': 'Original not found'}), 404
+
+    if convert_image(os.path.join(ORIGINALS_DIR, original_name), base):
+        trigger_redownload(); return jsonify({'ok': True})
+    return jsonify({'ok': False, 'error': 'Re-conversion failed'}), 500
+
+
+@app.route('/config', methods=['POST'])
+def update_config():
+    cfg = load_config()
+    try:
+        cfg['timer']       = int(request.form.get('timer', cfg['timer']))
+        cfg['shuffle']     = 'shuffle' in request.form
+        cfg['sync_images'] = 'sync_images' in request.form
+    except Exception as e: logger.error(f"Config parse: {e}")
+    count = int(request.form.get('device_count', 0)); devices = []
+    old_devices_map = {d['mac'].lower(): d for d in cfg.get('devices', []) if d.get('mac')}
+    for i in range(count):
+        mac = request.form.get(f'device_mac_{i}', '').strip()
+        if mac:
+            old = old_devices_map.get(mac.lower(), {})
+            devices.append({
+                'mac': mac, 'orientation': request.form.get(f'device_orient_{i}', 'landscape'),
+                'debug': request.form.get(f'device_debug_{i}', '0') == '1', 'name': old.get('name', mac),
+                'mode': old.get('mode', 'group'), 'shuffle': request.form.get(f'device_shuffle_{i}', '0') == '1',
+                'flip_l': request.form.get(f'device_flip_l_{i}', '0') == '1', 'flip_p': request.form.get(f'device_flip_p_{i}', '0') == '1',
+                'images': old.get('images', [])
+            })
+    if devices: cfg['devices'] = devices
+    save_config(cfg); trigger_redownload()
+    return redirect(url_for('index'))
+
+
+@app.route('/devices', methods=['POST'])
+def update_devices():
+    cfg = load_config(); count = int(request.form.get('device_count', 0)); devices = []
+    old_devices_map = {d['mac'].lower(): d for d in cfg.get('devices', []) if d.get('mac')}
+    for i in range(count):
+        mac = request.form.get(f'mac_{i}', '').strip()
+        if mac:
+            old = old_devices_map.get(mac.lower(), {})
+            devices.append({
+                'mac': mac, 'orientation': request.form.get(f'orient_{i}', 'landscape'),
+                'debug': request.form.get(f'debug_{i}', '0') == '1', 'name': old.get('name', mac),
+                'mode': old.get('mode', 'group'), 'shuffle': request.form.get(f'shuffle_{i}', '0') == '1',
+                'flip_l': request.form.get(f'flip_l_{i}', '0') == '1', 'flip_p': request.form.get(f'flip_p_{i}', '0') == '1',
+                'images': old.get('images', [])
+            })
+    cfg['devices'] = devices; save_config(cfg); trigger_redownload()
+    return redirect(url_for('index'))
+
+
+@app.route('/device_orientation', methods=['POST'])
+def device_orientation():
+    data = request.get_json(); mac = data.get('mac'); orientation = data.get('orientation')
+    if not mac or orientation not in ('landscape', 'portrait'): return jsonify({'ok': False}), 400
+    cfg = load_config()
+    for dev in cfg.get('devices', []):
+        if dev['mac'].lower() == mac.lower(): dev['orientation'] = orientation; trigger_redownload(mac); break
+    save_config(cfg)
+    return jsonify({'ok': True, 'orientation': orientation})
+
+
+@app.route('/api/queue', methods=['POST'])
+def queue_image_api():
+    data = request.get_json() or {}; base = data.get('base'); source = data.get('source')
+    if not base or not source: return jsonify({'ok': False, 'error': 'Missing base or source'}), 400
+    with _state_lock:
+        state = load_state(); current_queued = state.get('queued_image')
+        if current_queued and current_queued.get('base') == base and current_queued.get('source') == source:
+            state['queued_image'] = None; action = 'dequeued'
+        else:
+            state['queued_image'] = {'base': base, 'source': source}; action = 'queued'
+        _reset_round(state); state.setdefault('redownload', {})
+        if source == 'general':
+            cfg = load_config()
+            for dev in cfg.get('devices', []):
+                if dev.get('mode', 'group') == 'group' and dev.get('mac'): state['redownload'][dev['mac'].lower()] = True
+        else:
+            state['redownload'][source.lower()] = True
+        save_state(state)
+    return jsonify({'ok': True, 'action': action, 'queued_image': state['queued_image']})
+
+
+@app.route('/device_shuffle', methods=['POST'])
+def device_shuffle():
+    data = request.get_json() or {}; mac = data.get('mac'); shuffle_val = bool(data.get('shuffle', False))
+    if not mac: return jsonify({'ok': False, 'error': 'mac parameter required'}), 400
+    cfg = load_config(); device_found = False
+    for dev in cfg.get('devices', []):
+        if dev['mac'].lower() == mac.lower(): dev['shuffle'] = shuffle_val; device_found = True; trigger_redownload(mac); break
+    if not device_found: return jsonify({'ok': False, 'error': 'device not found'}), 404
+    save_config(cfg)
+    return jsonify({'ok': True, 'shuffle': shuffle_val})
+
+
+@app.route('/device_flip', methods=['POST'])
+def device_flip():
+    data = request.get_json() or {}; mac = data.get('mac'); orient_type = data.get('orient'); flip_val = bool(data.get('flip', False))
+    if not mac or orient_type not in ('l', 'p'): return jsonify({'ok': False, 'error': 'Missing parameters'}), 400
+    cfg = load_config(); device_found = False
+    for dev in cfg.get('devices', []):
+        if dev['mac'].lower() == mac.lower():
+            if orient_type == 'l': dev['flip_l'] = flip_val
+            else: dev['flip_p'] = flip_val
+            device_found = True; trigger_redownload(mac); break
+    if not device_found: return jsonify({'ok': False, 'error': 'device not found'}), 404
+    save_config(cfg)
+    return jsonify({'ok': True, 'flip': flip_val})
+
+
+@app.route('/device_debug', methods=['GET', 'POST'])
+def device_debug():
+    if request.method == 'POST':
+        if request.is_json:
+            data = request.get_json() or {}; mac = data.get('mac'); dbg_val = bool(data.get('debug', False))
+        else:
+            mac = request.form.get('mac'); dbg_val = request.form.get('debug') in ('1', 'true', 'True', True)
+    else:
+        mac = request.args.get('mac'); dbg_val = request.args.get('debug') in ('1', 'true', 'True', True)
+    if not mac: return jsonify({'ok': False, 'error': 'mac parameter required'}), 400
+    cfg = load_config(); device_found = False
+    for dev in cfg.get('devices', []):
+        if dev['mac'].lower() == mac.lower(): dev['debug'] = dbg_val; device_found = True; break
+    if not device_found: return jsonify({'ok': False, 'error': 'device not found'}), 404
+    save_config(cfg)
+    return jsonify({'ok': True, 'debug': dbg_val})
+
+
+@app.route('/device_rename', methods=['POST'])
+def device_rename():
+    data = request.get_json(); mac = data.get('mac'); new_name = data.get('name', '').strip()
+    if not mac or not new_name: return jsonify({'ok': False, 'error': 'Missing fields'}), 400
+    cfg = load_config()
+    for dev in cfg.get('devices', []):
+        if dev['mac'].lower() == mac.lower(): dev['name'] = new_name; break
+    save_config(cfg); return jsonify({'ok': True})
+
+
+@app.route('/device_mode', methods=['POST'])
+def device_mode():
+    data = request.get_json(); mac = data.get('mac'); mode = data.get('mode')
+    if not mac or mode not in ('group', 'individual'): return jsonify({'ok': False}), 400
+    cfg = load_config()
+    for dev in cfg.get('devices', []):
+        if dev['mac'].lower() == mac.lower():
+            if mode == 'individual' and not dev.get('images', []): return jsonify({'ok': False, 'error': 'No images assigned'}), 400
+            dev['mode'] = mode; trigger_redownload(mac); break
+    save_config(cfg); return jsonify({'ok': True, 'mode': mode})
+
+
+@app.route('/device_assign_image', methods=['POST'])
+def device_assign_image():
+    data = request.get_json(); mac = data.get('mac'); base = data.get('base')
+    if not mac or not base: return jsonify({'ok': False, 'error': 'Invalid parameters'}), 400
+    cfg = load_config(); enabled = load_enabled(); flags = _flags(enabled, base)
+    dev = next((d for d in cfg.get('devices', []) if d['mac'].lower() == mac.lower()), None)
+    if not dev: return jsonify({'ok': False, 'error': 'Device not found'}), 404
+    
+    dev_imgs = dev.setdefault('images', [])
+    if not any(img['base'] == base for img in dev_imgs):
+        dev_imgs.append({'base': base, 'l': flags['l'], 'p': flags['p']})
+    flags['l'] = False; flags['p'] = False; enabled[base] = flags
+    
+    save_enabled(enabled); save_config(cfg); trigger_redownload(mac)
+    return jsonify({'ok': True})
+
+
+@app.route('/device_remove_image', methods=['POST'])
+def device_remove_image():
+    data = request.get_json(); mac = data.get('mac'); base = data.get('base')
+    if not mac or not base: return jsonify({'ok': False, 'error': 'Invalid parameters'}), 400
+    
+    cfg = load_config()
+    for dev in cfg.get('devices', []):
+        if dev['mac'].lower() == mac.lower():
+            dev['images'] = [img for img in dev.get('images', []) if img['base'] != base]
+            if not dev['images']: dev['mode'] = 'group'
+            trigger_redownload(mac); break
+    save_config(cfg); return jsonify({'ok': True})
+
+
+@app.route('/device_move_image', methods=['POST'])
+def device_move_image():
+    data = request.get_json(); from_mac = data.get('from_mac'); to_mac = data.get('to_mac'); base = data.get('base')
+    if not from_mac or not to_mac or not base: return jsonify({'ok': False, 'error': 'Invalid parameters'}), 400
+    
+    cfg = load_config()
+    from_dev = next((d for d in cfg.get('devices', []) if d['mac'].lower() == from_mac.lower()), None)
+    to_dev = next((d for d in cfg.get('devices', []) if d['mac'].lower() == to_mac.lower()), None)
+    
+    if not from_dev or not to_dev:
+        return jsonify({'ok': False, 'error': 'Device not found'}), 404
+        
+    target_img = next((img for img in from_dev.get('images', []) if img['base'] == base), None)
+    if not target_img:
+        return jsonify({'ok': False, 'error': 'Image not found on source device'}), 404
+        
+    from_dev['images'] = [img for img in from_dev['images'] if img['base'] != base]
+    if not from_dev['images']: from_dev['mode'] = 'group'
+    to_dev.setdefault('images', []).append({'base': base, 'l': target_img.get('l', True), 'p': target_img.get('p', True)})
+    save_config(cfg); trigger_redownload(from_mac); trigger_redownload(to_mac)
+    return jsonify({'ok': True})
+
+
+@app.route('/device_reorder_images', methods=['POST'])
+def device_reorder_images():
+    data = request.get_json(); mac = data.get('mac'); order = data.get('order', [])
+    if not mac: return jsonify({'ok': False, 'error': 'Invalid parameters'}), 400
+    cfg = load_config()
+    for dev in cfg.get('devices', []):
+        if dev['mac'].lower() == mac.lower():
+            img_map = {img['base']: img for img in dev.get('images', [])}
+            dev['images'] = [img_map[b] for b in order if b in img_map]
+            trigger_redownload(mac); break
+    save_config(cfg); return jsonify({'ok': True})
+
+
+@app.route('/device_image_toggle_orient', methods=['POST'])
+def device_image_toggle_orient():
+    data = request.get_json(); mac = data.get('mac'); base = data.get('base'); orient = data.get('orient'); enabled = bool(data.get('enabled'))
+    if not mac or not base or orient not in ('l', 'p'): return jsonify({'ok': False, 'error': 'Invalid parameters'}), 400
+    cfg = load_config()
+    for dev in cfg.get('devices', []):
+        if dev['mac'].lower() == mac.lower():
+            for img in dev.get('images', []):
+                if img['base'] == base: img[orient] = enabled; trigger_redownload(mac); break
+            break
+    save_config(cfg); return jsonify({'ok': True})
+
+# ---------------------------------------------------------------------------
+# Static serving
+# ---------------------------------------------------------------------------
+
+@app.route('/serve/originals/<path:filename>')
+def serve_original(filename): return send_from_directory(ORIGINALS_DIR, filename)
+
+@app.route('/serve/images/<path:filename>')
+def serve_image(filename): return send_from_directory(IMAGES_DIR, filename)
+
+@app.route('/images/<path:filename>')
+def download_image(filename):
+    if not filename.lower().endswith('.bmp'): return "Invalid format", 400
+    return send_from_directory(IMAGES_DIR, filename)
+
+# ---------------------------------------------------------------------------
+# Device API
+# ---------------------------------------------------------------------------
+
+@app.route('/api/config', methods=['GET'])
+def api_config():
+    cfg = load_config(); now = datetime.now()
+    cfg['current_date'] = now.strftime('%Y-%m-%d'); cfg['timestamp'] = int(now.timestamp())
+    return jsonify(cfg)
+
+@app.route('/api/images', methods=['GET'])
+def api_images():
+    cfg = load_config(); caller_ip = _caller_ip(); all_files = get_unified_index()
+    mac = request.args.get('mac', '').strip().lower() or request.headers.get('X-Device-Mac', '').strip().lower()
+    dev_cfg = None
+    if mac: dev_cfg = next((d for d in cfg.get('devices', []) if d['mac'].lower() == mac), None)
+    if not dev_cfg: dev_cfg = next((d for d in cfg.get('devices', []) if d.get('ip') == caller_ip), None)
+
+    if dev_cfg:
+        suffix = orient_suffix(dev_cfg.get('orientation', 'landscape'))
+        if dev_cfg.get('mode', 'group') == 'individual':
+            dev_imgs = dev_cfg.get('images', [])
+            orient_char = 'l' if dev_cfg.get('orientation') == 'landscape' else 'p'
+            files = [item['base'] + suffix for item in dev_imgs if item.get(orient_char, True) and os.path.exists(os.path.join(IMAGES_DIR, item['base'] + suffix))]
+        else:
+            files = [f for f in all_files if f.endswith(suffix)]
+    else:
+        files = all_files
+    return jsonify(files)
+
+def get_latest_github_release_url(hw_profile, current_version):
+    try:
+        _update_github_release_cache(); tag = _github_latest_release_cache['tag']
+        def parse_ver(v):
+            try: return tuple(int(x) for x in v.split('.')[:3])
+            except Exception: return (0, 0, 0)
+        if tag and parse_ver(tag) > parse_ver(current_version): return _github_latest_release_cache['assets'].get(hw_profile)
+    except Exception as e: logger.error(f"Error checking GitHub releases: {e}")
+    return None
+
+@app.route('/update', methods=['GET'])
+@app.route('/api/update', methods=['GET'])
+def api_update():
+    hw = request.args.get('hw', '').strip(); version = request.args.get('version', '').strip()
+    if not hw: return "Missing hw profile parameter", 400
+    update_url = get_latest_github_release_url(hw, version)
+    return (update_url, 200) if update_url else ("", 204)
+
+@app.route('/api/daily-zip', methods=['GET'])
+def api_daily_zip():
+    cfg = load_config(); caller_ip = _caller_ip(); devices = cfg.get('devices', [])
+    mac = request.args.get('mac', '').strip().lower() or request.headers.get('X-Device-Mac', '').strip().lower() or caller_ip.lower()
+    
+    dev_cfg = next((d for d in devices if d['mac'].lower() == mac), None)
+    if not dev_cfg:
+        dev_cfg = {'mac': mac, 'name': mac, 'orientation': 'portrait', 'debug': False, 'mode': 'group', 'images': []}
+        cfg.setdefault('devices', []).append(dev_cfg); save_config(cfg)
+
+    mac = dev_cfg.get('mac').lower()
+    with _state_lock:
+        state = load_state(); state.setdefault('redownload', {})
+        state['redownload'][mac] = False; save_state(state)
+
+    orientation = dev_cfg.get('orientation', 'portrait')
+    if dev_cfg.get('mode', 'group') == 'individual':
+        orient_char = 'l' if orientation == 'landscape' else 'p'
+        active_bases = [item['base'] for item in dev_cfg.get('images', []) if item.get(orient_char, True)]
+    else:
+        active_bases = get_active_bases(orientation)
+        
+    bin_suffix = '_l.bin' if orientation == 'landscape' else '_p.bin'
+    candidates = [b + bin_suffix for b in active_bases]
+    
+    queued = state.get('queued_image')
+    if queued and ((queued.get('source') == 'general' and dev_cfg.get('mode', 'group') == 'group') or (queued.get('source', '').lower() == mac)):
+        q_filename = queued.get('base') + bin_suffix
+        if q_filename not in candidates: candidates.append(q_filename)
+
+    serializable_cfg = {
+        "timer": int(cfg.get("timer", 900)),
+        "wake_timeout": int(cfg.get("wake_timeout", 45)),
+        "shuffle": bool(cfg.get("shuffle", False)),
+        "sync_images": bool(cfg.get("sync_images", False)),
+        "enabled": {str(k): dict(v) for k, v in load_enabled().items()}
+    }
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode='w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+        zf.writestr('config.json', json.dumps(serializable_cfg, indent=2))
+        manifest_data = json.dumps(candidates, indent=2)
+        zf.writestr('index.json', manifest_data)
+        zf.writestr('list.json', manifest_data)
+        
+        for bin_filename in candidates:
+            bin_path = ensure_bin_file(bin_filename[:-6], orientation)
+            if bin_path and os.path.exists(bin_path):
+                if (orientation == 'landscape' and dev_cfg.get('flip_l', False)) or (orientation != 'landscape' and dev_cfg.get('flip_p', False)):
+                    try:
+                        with open(bin_path, 'rb') as f: data = f.read()
+                        flipped_data = bytes([ ((b & 0x0F) << 4) | ((b & 0xF0) >> 4) for b in reversed(data) ])
+                        zf.writestr(bin_filename, flipped_data)
+                    except Exception: zf.write(bin_path, arcname=bin_filename)
+                else: zf.write(bin_path, arcname=bin_filename)
+
+    size = buf.tell(); buf.seek(0)
+    return Response(buf, mimetype='application/zip',
+                    headers={'Content-Disposition': 'attachment; filename="daily.zip"', 'Content-Length': str(size)})
+
+# ---------------------------------------------------------------------------
+# Wakeup — 3-phase protocol
+# ---------------------------------------------------------------------------
+
+def _caller_ip():
+    if request.headers.get('X-Forwarded-For'): return request.headers['X-Forwarded-For'].split(',')[0].strip()
+    return request.remote_addr
+
+def _advance_index(cfg, state, num_devices):
+    state['last_change_ts'] = int(time.time())
+    any_sequential = any(not (d.get('shuffle', False) if d.get('mode', 'group') == 'individual' else cfg.get('shuffle', False)) for d in cfg.get('devices', []))
+    if any_sequential or not cfg.get('devices'):
+        if cfg.get('sync_images', False):
+            pool = get_active_bases(None)
+            if pool: state['current_index'] = (state['current_index'] + 1) % len(pool)
+        else: state['current_index'] = state['current_index'] + num_devices
+
+def _reset_round(state):
+    state['phase'] = PHASE_GATHERING
+    state['phase_checkins'] = {}; state['phase_ready_ack'] = {}; state['phase_change_ack'] = {}
+    state['round_assignments'] = {}; state['queued_image'] = None
+
+@app.route('/api/wakeup', methods=['POST'])
+def api_wakeup():
+    cfg = load_config(); devices = cfg.get('devices', [])
+    data = request.get_json() or {}
+    mac = data.get('mac', '').strip().lower() or request.headers.get('X-Device-Mac', '').strip().lower() or _caller_ip().lower()
+    known_macs = [d['mac'].lower() for d in devices if d.get('mac')]
+
+    if mac not in known_macs:
+        ip = _caller_ip(); ip_device = next((d for d in devices if d.get('name') == ip and not d.get('mac')), None)
+        if ip_device: ip_device['mac'] = mac; ip_device['name'] = mac
+        else: devices.append({'mac': mac, 'name': mac, 'orientation': 'portrait', 'debug': False, 'mode': 'group', 'images': []})
+        cfg['devices'] = devices; save_config(cfg); known_macs = [d['mac'].lower() for d in devices]
+
+    dev_cfg = next((d for d in devices if d['mac'].lower() == mac), None)
+    if not dev_cfg: return Response("WAIT - None", mimetype='text/plain'), 200
+    device_idx = devices.index(dev_cfg); num_devices = len(devices)
+
+    with _state_lock:
+        state = load_state(); now_ts = int(time.time())
+        state.setdefault('last_seen', {})[mac] = now_ts
+        state.setdefault('device_ips', {})[mac] = _caller_ip()
+
+        if data.get('version') or request.headers.get('User-Agent', '').lower().startswith('micropython'):
+            version = data.get('version', '').strip() or request.args.get('version', '').strip()
+            latest_version = get_latest_firmware_version()
+            def parse_version(v_str):
+                try: return [int(x) for x in v_str.split('.')]
+                except Exception: return [0, 0, 0]
+            if not version or parse_version(version) < parse_version(latest_version):
+                save_state(state); return Response("UPDATE", mimetype='text/plain'), 200
+
+        if dev_cfg.get('debug', False):
+            save_state(state); return Response("DEBUG", mimetype='text/plain'), 200
+
+        phase = state.get('phase', PHASE_GATHERING)
+        if any((d.get('shuffle', False) if d.get('mode', 'group') == 'individual' else cfg.get('shuffle', False)) for d in devices) and not state.get('round_assignments'):
+            _build_shuffle_assignments(cfg, state)
+
+        target_file = _target_for_device(cfg, state, mac, device_idx, num_devices)
+        if target_file and target_file.endswith('.bmp'): target_file = target_file[:-4] + '.bin'
+        if target_file: ensure_bin_file(target_file[:-6], dev_cfg.get('orientation', 'landscape'))
+        redownload_suffix = " - REDOWNLOAD" if state.get('redownload', {}).get(mac, False) else ""
+
+        if phase == PHASE_GATHERING:
+            state.setdefault('phase_checkins', {})[mac] = now_ts
+            if set(known_macs) <= set(state['phase_checkins'].keys()):
+                state['phase'] = PHASE_READY; state['phase_ready_ack'] = {}; phase = PHASE_READY
+            else:
+                remaining = (state.setdefault('last_change_ts', now_ts) + cfg.get('timer', 900)) - now_ts
+                save_state(state)
+                msg_body = f"WAIT - {target_file}"
+                if remaining > 10:
+                    msg_body += f" - {remaining}"
+                if redownload_suffix:
+                    msg_body += redownload_suffix
+                return Response(msg_body, mimetype='text/plain'), 200
+
+        if phase == PHASE_READY:
+            state.setdefault('phase_ready_ack', {})[mac] = now_ts
+            if set(known_macs) <= set(state['phase_ready_ack'].keys()):
+                state['phase'] = PHASE_CHANGE; state['phase_change_ack'] = {}; phase = PHASE_CHANGE
+            else:
+                save_state(state); return Response(f"READY - {target_file}{redownload_suffix}", mimetype='text/plain'), 200
+
+        if phase == PHASE_CHANGE:
+            state.setdefault('phase_change_ack', {})[mac] = now_ts
+            state.setdefault('device_images', {})[mac] = target_file
+            if set(known_macs) <= set(state['phase_change_ack'].keys()):
+                _advance_index(cfg, state, num_devices)
+                if (now_ts - state.get('last_sync_ts', 0)) >= 86400: state['last_sync_ts'] = now_ts
+                _reset_round(state)
+            save_state(state); return Response(f"CHANGE - {target_file}{redownload_suffix}", mimetype='text/plain'), 200
+
+        save_state(state); return Response("WAIT - None", mimetype='text/plain'), 200
+
+
+@app.route('/api/wakeup/reset', methods=['POST'])
+def api_reset_state():
+    state = load_state(); _reset_round(state); save_state(state)
+    return jsonify({"ok": True, "phase": state['phase']})
+
+
+@app.route('/api/wakeup/next', methods=['POST'])
+def api_next_image():
+    with _state_lock:
+        state = load_state(); _reset_round(state); save_state(state)
+    return jsonify({"ok": True, "current_index": state.get('current_index', 0), "phase": state['phase']})
+
+# ---------------------------------------------------------------------------
+# Safe Global Post-Initialization Execution
+# ---------------------------------------------------------------------------
+
+try:
+    for directory_path in (SHARE_DIR, ORIGINALS_DIR, IMAGES_DIR, CONFIG_DIR):
+        os.makedirs(directory_path, exist_ok=True)
+    init_db()
+except Exception as global_err:
+    logger.error(f"Global thread initial runtime initialization failed: {global_err}")
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 8000))
+    zeroconf_instance = start_mdns_broadcast(port)
+    try: app.run(host='0.0.0.0', port=port, debug=False)
+    finally:
+        if zeroconf_instance: zeroconf_instance.close()
