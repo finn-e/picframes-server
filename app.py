@@ -376,6 +376,14 @@ def init_db():
         cursor.execute("ALTER TABLE enabled ADD COLUMN title INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass
+    try:
+        cursor.execute("ALTER TABLE enabled ADD COLUMN caption_mode TEXT DEFAULT 'none'")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE enabled ADD COLUMN description TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
 
     # Migrate legacy JSON files if database is empty / not migrated yet
@@ -682,11 +690,12 @@ def load_enabled():
         cursor.execute("SELECT * FROM enabled")
         for row in cursor.fetchall():
             cols = row.keys()
-            has_title = 'title' in cols
             enabled[row['base']] = {
                 "l": bool(row['l']),
                 "p": bool(row['p']),
-                "title": bool(row['title']) if has_title else False
+                "title": bool(row['title']) if 'title' in cols else False,
+                "caption_mode": row['caption_mode'] if 'caption_mode' in cols else 'none',
+                "description": row['description'] if 'description' in cols else ''
             }
         conn.close()
     except Exception as e:
@@ -701,21 +710,33 @@ def save_enabled(enabled):
             l_val = val.get('l', True) if isinstance(val, dict) else val
             p_val = val.get('p', True) if isinstance(val, dict) else val
             title_val = val.get('title', False) if isinstance(val, dict) else False
+            caption_mode = val.get('caption_mode', 'none') if isinstance(val, dict) else 'none'
+            desc_val = val.get('description', '') if isinstance(val, dict) else ''
             try:
-                cursor.execute("INSERT OR REPLACE INTO enabled (base, l, p, title) VALUES (?, ?, ?, ?)",
-                               (base, 1 if l_val else 0, 1 if p_val else 0, 1 if title_val else 0))
+                cursor.execute("INSERT OR REPLACE INTO enabled (base, l, p, title, caption_mode, description) VALUES (?, ?, ?, ?, ?, ?)",
+                               (base, 1 if l_val else 0, 1 if p_val else 0, 1 if title_val else 0, caption_mode, desc_val))
             except sqlite3.OperationalError:
-                cursor.execute("INSERT OR REPLACE INTO enabled (base, l, p) VALUES (?, ?, ?)",
-                               (base, 1 if l_val else 0, 1 if p_val else 0))
+                try:
+                    cursor.execute("INSERT OR REPLACE INTO enabled (base, l, p, title) VALUES (?, ?, ?, ?)",
+                                   (base, 1 if l_val else 0, 1 if p_val else 0, 1 if title_val else 0))
+                except sqlite3.OperationalError:
+                    cursor.execute("INSERT OR REPLACE INTO enabled (base, l, p) VALUES (?, ?, ?)",
+                                   (base, 1 if l_val else 0, 1 if p_val else 0))
         conn.commit()
         conn.close()
     except Exception as e:
         logger.error(f"SQL save_enabled failed: {e}")
 
 def _flags(enabled, base):
-    v = enabled.get(base, {"l": True, "p": True, "title": False})
-    if isinstance(v, bool): return {"l": v, "p": v, "title": False}
-    return {"l": v.get("l", True), "p": v.get("p", True), "title": v.get("title", False)}
+    v = enabled.get(base, {"l": True, "p": True, "title": False, "caption_mode": 'none', "description": ''})
+    if isinstance(v, bool): return {"l": v, "p": v, "title": False, "caption_mode": 'none', "description": ''}
+    return {
+        "l": v.get("l", True),
+        "p": v.get("p", True),
+        "title": v.get("title", False),
+        "caption_mode": v.get("caption_mode", 'none'),
+        "description": v.get("description", '')
+    }
 
 # ---------------------------------------------------------------------------
 # Active image helpers
@@ -1416,11 +1437,11 @@ HTML_TEMPLATE = r"""
                         <button type="button" class="{% if dev.mode == 'individual' %}active-i{% endif %}" {% if not dev.images %}disabled title="No individual images assigned"{% endif %} onclick="setDeviceMode('{{ dev.mac }}', 'individual', this)">🖼️ Indiv</button>
                     </div>
 
-                    <div class="toggle-wrap" style="margin-left: 0.5rem; margin-right: 0.5rem;" title="Enable safe REPL debug mode">
+                    <div class="toggle-wrap" style="margin-left: 0.5rem; margin-right: 0.5rem;" title="Enable safe REPL mode">
                         <input type="checkbox" class="toggle" id="dbg_dev_{{ loop.index0 }}"
                                {% if dev.debug %}checked{% endif %}
                                onchange="setDeviceDebug('{{ dev.mac }}', this.checked)">
-                        <label for="dbg_dev_{{ loop.index0 }}" style="font-size:0.8rem; font-weight:600; color:var(--warning);">DEBUG</label>
+                        <label for="dbg_dev_{{ loop.index0 }}" style="font-size:0.8rem; font-weight:600; color:var(--warning);">REPL</label>
                     </div>
 
                     <input type="hidden" name="mac_{{ loop.index0 }}" value="{{ dev.mac }}">
@@ -1448,9 +1469,9 @@ HTML_TEMPLATE = r"""
                     </div>
                     <input type="hidden" id="new-orient-val" value="landscape">
                     
-                    <span class="toggle-wrap" style="margin-left:0.25rem;" title="Default Debug Mode for New Device">
+                    <span class="toggle-wrap" style="margin-left:0.25rem;" title="Default REPL Mode for New Device">
                         <input type="checkbox" class="toggle" id="new-debug-val">
-                        <label for="new-debug-val" style="font-size:0.8rem; font-weight:600; color:var(--warning);">DEBUG</label>
+                        <label for="new-debug-val" style="font-size:0.8rem; font-weight:600; color:var(--warning);">REPL</label>
                     </span>
 
                     <button type="button" class="btn btn-ghost btn-sm" onclick="addDevice()">+ Add</button>
@@ -1476,7 +1497,7 @@ HTML_TEMPLATE = r"""
                 <div class="node-mac">{{ dev.mac }}</div>
                 <div style="font-size:0.75rem; color:var(--muted); font-family:monospace;">{{ ip_addr }}</div>
                 <div class="node-status">
-                    {% if dev.debug %}<span style="color:var(--warning); font-weight:600;">⚠️ REPL DEBUG LOCK</span>
+                    {% if dev.debug %}<span style="color:var(--warning); font-weight:600;">⚠️ REPL ACTIVE</span>
                     {% elif ts > 0 %}Last seen {{ ((now_ts - ts)|int) }}s ago
                     {% else %}Never seen{% endif %}
                 </div>
@@ -1516,7 +1537,7 @@ HTML_TEMPLATE = r"""
         <form action="{{ url_for('convert_all') }}" method="POST" style="margin-left:auto;">
             <button type="submit" class="btn btn-warning btn-sm">🔄 Reconvert All</button>
         </form>
-        <span style="font-size:0.8rem;color:var(--muted);">Drag to reorder/assign · Click name to rename</span>
+        <span style="font-size:0.8rem;color:var(--muted);">Drag to reorder/assign · Click Title to rename</span>
     </div>
 
     <!-- Tabs Bar -->
@@ -1538,7 +1559,7 @@ HTML_TEMPLATE = r"""
 
                 <div class="img-name-wrap">
                     <span class="img-name" title="Click to rename"
-                          onclick="startRename(this, '{{ img.base }}')">{{ img.base }}</span>
+                          onclick="startRename(this, '{{ img.base }}')">{{ img.base.replace('_', ' ') }}</span>
                     <span class="rename-hint" style="display:none;">Enter to save · Esc to cancel</span>
                 </div>
 
@@ -1588,15 +1609,22 @@ HTML_TEMPLATE = r"""
                     </div>
                 </div>
 
-                <div class="preview-cell" style="display:flex; flex-direction:column; justify-content:center; align-items:center; min-width:120px; border-left:1px solid rgba(255,255,255,0.08);">
-                    <div class="preview-label" style="justify-content:center; width:100%; border-bottom:none;">
-                        <span style="margin-right:0.75rem; font-weight:600;">Title Outline</span>
-                        <span class="toggle-wrap">
-                            <input type="checkbox" class="toggle" id="tog_title_{{ img.base }}"
-                                   {% if img.title_on %}checked{% endif %}
-                                   onchange="toggleOrient('{{ img.base }}', 'title', this.checked)">
-                            <label for="tog_title_{{ img.base }}" style="font-size:0.75rem;">On</label>
-                        </span>
+                <div class="preview-cell" style="display:flex; flex-direction:column; justify-content:center; align-items:center; min-width:200px; border-left:1px solid rgba(255,255,255,0.08); padding:0.5rem;">
+                    <div class="preview-label" style="justify-content:center; width:100%; border-bottom:none; margin-bottom:0.25rem;">
+                        <span style="font-weight:600;">Caption</span>
+                    </div>
+                    <select onchange="updateCaptionMode('{{ img.base }}', this.value)" style="background:#2d3748; color:#fff; border:1px solid rgba(255,255,255,0.2); border-radius:4px; padding:0.25rem; font-size:0.85rem; width:100%; max-width:180px;">
+                        <option value="none" {% if img.caption_mode == 'none' %}selected{% endif %}>None</option>
+                        <option value="title" {% if img.caption_mode == 'title' %}selected{% endif %}>Title</option>
+                        <option value="details" {% if img.caption_mode == 'details' %}selected{% endif %}>Details</option>
+                        <option value="verbose" {% if img.caption_mode == 'verbose' %}selected{% endif %}>Verbose</option>
+                    </select>
+                    
+                    <div id="details-container-{{ img.base }}" style="margin-top:0.5rem; width:100%; max-width:180px; {% if img.caption_mode != 'details' %}display:none;{% endif %}">
+                        <textarea class="details-textarea" id="desc-{{ img.base }}" placeholder="Sarah and Kyle in Phoenix, AZ" maxlength="133" oninput="updateDescription('{{ img.base }}', this.value)" style="background:#1a202c; color:#fff; border:1px solid rgba(255,255,255,0.2); border-radius:4px; padding:0.25rem; font-size:0.8rem; width:100%; height:50px; resize:none; box-sizing:border-box;">{{ img.description }}</textarea>
+                        <div style="display:flex; justify-content:flex-end; font-size:0.7rem; color:rgba(255,255,255,0.5); margin-top:2px;">
+                            <span id="counter-{{ img.base }}">{{ img.description | length }}/133</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1685,7 +1713,7 @@ HTML_TEMPLATE = r"""
                 <div class="card-header">
                     <span class="drag-handle" title="Drag to reorder">⣿</span>
                     <div class="img-name-wrap">
-                        <span class="img-name">{{ img.base }}</span>
+                        <span class="img-name">{{ img.base.replace('_', ' ') }}</span>
                     </div>
                     <button type="button" class="btn-queue{% if is_queued %} active{% endif %}"
                             onclick="queueImage('{{ img.base }}', '{{ dev.mac }}')">
@@ -1806,6 +1834,43 @@ function toggleOrient(base, orient, enabled) {
         body: JSON.stringify({base, orient, enabled})
     }).then(r => r.json()).then(d => toast(d.ok ? `${base}_${orient}.bmp ${enabled?'on':'off'}` : 'Error'));
 }
+function updateCaptionMode(base, mode) {
+    const container = document.getElementById(`details-container-${base}`);
+    if (container) {
+        if (mode === 'details') {
+            container.style.display = 'block';
+        } else {
+            container.style.display = 'none';
+        }
+    }
+    fetch('/update_caption', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({base, caption_mode: mode})
+    }).then(r => r.json()).then(d => {
+        if (!d.ok) toast('Error updating caption mode');
+        else toast(`${base} caption mode: ${mode}`);
+    });
+}
+
+let descTimeout = {};
+function updateDescription(base, text) {
+    const counter = document.getElementById(`counter-${base}`);
+    if (counter) {
+        counter.textContent = `${text.length}/133`;
+    }
+    clearTimeout(descTimeout[base]);
+    descTimeout[base] = setTimeout(() => {
+        fetch('/update_caption', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({base, description: text})
+        }).then(r => r.json()).then(d => {
+            if (!d.ok) toast('Error auto-saving description: ' + d.error);
+            else toast('Saved description');
+        });
+    }, 500);
+}
 
 // ---- Device specific image L/P toggles ----
 function toggleDeviceImageOrient(mac, base, orient, enabled) {
@@ -1863,7 +1928,7 @@ function startRename(span, base) {
     const hint = wrap.querySelector('.rename-hint');
     const input = document.createElement('input');
     let finished = false;
-    input.type = 'text'; input.className = 'rename-input'; input.value = base;
+    input.type = 'text'; input.className = 'rename-input'; input.value = base.replaceAll('_', ' ');
     span.style.display = 'none'; hint.style.display = 'inline';
     wrap.insertBefore(input, hint);
     input.focus(); input.select();
@@ -1872,7 +1937,12 @@ function startRename(span, base) {
         if (finished) return;
         finished = true;
         const newBase = input.value.trim();
-        if (!newBase || newBase === base) { cancel(); return; }
+        if (!newBase || newBase.replaceAll(' ', '_') === base) { cancel(); return; }
+        if (newBase.length > 78) {
+            toast('Error: Title too long (max 78 characters)');
+            cancel();
+            return;
+        }
         fetch('/rename', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -2590,6 +2660,8 @@ def index():
             'base': base, 'original_name': original_name,
             'has_l': has_l, 'has_p': has_p,
             'l_on': flags["l"], 'p_on': flags["p"], 'title_on': flags.get("title", False),
+            'caption_mode': flags.get("caption_mode", 'none'),
+            'description': flags.get("description", ''),
             'orig_w': orig_w, 'orig_h': orig_h,
             'offset_l': crop_offsets.get("l", 0.5),
             'offset_p': crop_offsets.get("p", 0.5),
@@ -2719,10 +2791,16 @@ def rename_image():
 
     if not old_base or not new_base:
         return jsonify({'ok': False, 'error': 'Missing name'}), 400
+        
+    # Replace spaces with underscores
+    new_base = new_base.replace(' ', '_')
+    
+    if len(new_base) > 78:
+        return jsonify({'ok': False, 'error': 'Title is too long (max 78 characters)'}), 400
     if old_base == new_base:
         return jsonify({'ok': True})
     if not re.match(r'^[\w\-]+$', new_base):
-        return jsonify({'ok': False, 'error': 'Use letters, numbers, - or _'}), 400
+        return jsonify({'ok': False, 'error': 'Use letters, numbers, spaces, - or _'}), 400
 
     if any(os.path.splitext(f)[0] == new_base for f in os.listdir(ORIGINALS_DIR)):
         return jsonify({'ok': False, 'error': 'Name already in use'}), 409
@@ -2786,6 +2864,35 @@ def toggle_orient():
     enabled = load_enabled()
     flags = _flags(enabled, base)
     flags[orient] = val
+    enabled[base] = flags
+    save_enabled(enabled)
+    trigger_redownload()
+    return jsonify({'ok': True})
+
+
+@app.route('/update_caption', methods=['POST'])
+def update_caption():
+    data = request.get_json() or {}
+    base = data.get('base')
+    mode = data.get('caption_mode') # 'none', 'title', 'details', 'verbose'
+    desc = data.get('description')   # optional description
+    
+    if not base:
+        return jsonify({'ok': False, 'error': 'Missing base'}), 400
+        
+    enabled = load_enabled()
+    flags = _flags(enabled, base)
+    
+    if mode is not None:
+        if mode not in ('none', 'title', 'details', 'verbose'):
+            return jsonify({'ok': False, 'error': 'Invalid mode'}), 400
+        flags['caption_mode'] = mode
+        
+    if desc is not None:
+        if len(desc) > 133:
+            return jsonify({'ok': False, 'error': 'Description too long (max 133)'}), 400
+        flags['description'] = desc
+        
     enabled[base] = flags
     save_enabled(enabled)
     trigger_redownload()
