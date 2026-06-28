@@ -698,7 +698,7 @@ def get_active_bases(orientation=None):
         has_p = os.path.exists(os.path.join(IMAGES_DIR, portrait_file(base)))
         if orientation == 'landscape' and has_l and flags["l"]: result.append(base)
         elif orientation == 'portrait' and has_p and flags["p"]: result.append(base)
-        elif orientation is None and ((has_l && flags["l"]) or (has_p && flags["p"])): result.append(base)
+        elif orientation is None and ((has_l and flags["l"]) or (has_p and flags["p"])): result.append(base)
     return result
 
 def get_unified_index():
