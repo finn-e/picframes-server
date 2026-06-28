@@ -943,7 +943,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         #drop-zone:hover { border-color: var(--accent); background: rgba(79, 142, 247, 0.05); }
         #upload-progress { display: none; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.5rem; margin-bottom: 1.5rem; }
         .progress-bar-wrap { background: rgba(255,255,255,0.08); border-radius: 4px; height: 6px; margin-top: 0.5rem; overflow: hidden; }
-        .progress-bar { height: 100%; background: var(--accent); width: 0%; transition: width 0.2s; }
+        .progress-bar { height: 100%; background: var(--accent); border-radius: 4px; transition: width 0.3s; }
         .section-header { margin: 2rem 0 1rem; font-size: 1.3rem; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 0.75rem; }
         .badge { padding: 0.25rem 0.65rem; border-radius: 20px; font-size: 0.78rem; font-weight: 600; }
         .badge-blue { background: rgba(79,142,247,0.15); color: var(--accent); border: 1px solid rgba(79,142,247,0.25); }
@@ -1077,8 +1077,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
                             <button type="button" class="rm-or-btn {% if dev.orientation == 'portrait' %}active-p{% endif %}" onclick="setDeviceOrient('{{ dev.mac }}', 'portrait')">🤳 P</button>
                         </div>
                         <div class="mode-pill" style="margin-left: 0.25rem;">
-                            <button type="button" class="{% if dev.mode == 'group' %}active-g{% endif %}" onclick="setDeviceMode('{{ dev.mac }}', 'group')">👥 Group</button>
-                            <button type="button" class="{% if dev.mode == 'individual' %}active-i{% endif %}" onclick="setDeviceMode('{{ dev.mac }}', 'individual')">🖼️ Indiv</button>
+                            <button type="button" class="rm-or-btn {% if dev.mode == 'group' %}active-g{% endif %}" onclick="setDeviceMode('{{ dev.mac }}', 'group')">👥 Group</button>
+                            <button type="button" class="rm-or-btn {% if dev.mode == 'individual' %}active-i{% endif %}" onclick="setDeviceMode('{{ dev.mac }}', 'individual')">🖼️ Indiv</button>
                         </div>
                         <br><span class="device-mac">{{ dev.mac }}</span>
                     </div>
@@ -1328,6 +1328,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 
 function switchToDeviceTab(mac) { switchTab(`device-${mac}`); }
 
+// Drag-to-Crop Overlay Calculations
 function updateCropOverlay(container) {
     const orient = container.dataset.orient;
     const offset = parseFloat(container.dataset.offset);
@@ -1607,6 +1608,229 @@ def recrop():
         trigger_redownload(); return jsonify({'ok': True})
     return jsonify({'ok': False, 'error': 'Re-conversion failed'}), 500
 
+
+@app.route('/config', methods=['POST'])
+def update_config():
+    cfg = load_config()
+    try:
+        cfg['timer']       = int(request.form.get('timer', cfg['timer']))
+        cfg['shuffle']     = 'shuffle' in request.form
+        cfg['sync_images'] = 'sync_images' in request.form
+    except Exception as e: logger.error(f"Config parse: {e}")
+    count = int(request.form.get('device_count', 0)); devices = []
+    old_devices_map = {d['mac'].lower(): d for d in cfg.get('devices', []) if d.get('mac')}
+    for i in range(count):
+        mac = request.form.get(f'device_mac_{i}', '').strip()
+        if mac:
+            old = old_devices_map.get(mac.lower(), {})
+            devices.append({
+                'mac': mac, 'orientation': request.form.get(f'device_orient_{i}', 'landscape'),
+                'debug': request.form.get(f'device_debug_{i}', '0') == '1', 'name': old.get('name', mac),
+                'mode': old.get('mode', 'group'), 'shuffle': request.form.get(f'device_shuffle_{i}', '0') == '1',
+                'flip_l': request.form.get(f'device_flip_l_{i}', '0') == '1', 'flip_p': request.form.get(f'device_flip_p_{i}', '0') == '1',
+                'images': old.get('images', [])
+            })
+    if devices: cfg['devices'] = devices
+    save_config(cfg); trigger_redownload()
+    return redirect(url_for('index'))
+
+
+@app.route('/devices', methods=['POST'])
+def update_devices():
+    cfg = load_config(); count = int(request.form.get('device_count', 0)); devices = []
+    old_devices_map = {d['mac'].lower(): d for d in cfg.get('devices', []) if d.get('mac')}
+    for i in range(count):
+        mac = request.form.get(f'mac_{i}', '').strip()
+        if mac:
+            old = old_devices_map.get(mac.lower(), {})
+            devices.append({
+                'mac': mac, 'orientation': request.form.get(f'orient_{i}', 'landscape'),
+                'debug': request.form.get(f'debug_{i}', '0') == '1', 'name': old.get('name', mac),
+                'mode': old.get('mode', 'group'), 'shuffle': request.form.get(f'shuffle_{i}', '0') == '1',
+                'flip_l': request.form.get(f'flip_l_{i}', '0') == '1', 'flip_p': request.form.get(f'flip_p_{i}', '0') == '1',
+                'images': old.get('images', [])
+            })
+    cfg['devices'] = devices; save_config(cfg); trigger_redownload()
+    return redirect(url_for('index'))
+
+
+@app.route('/device_orientation', methods=['POST'])
+def device_orientation():
+    data = request.get_json(); mac = data.get('mac'); orientation = data.get('orientation')
+    if not mac or orientation not in ('landscape', 'portrait'): return jsonify({'ok': False}), 400
+    cfg = load_config()
+    for dev in cfg.get('devices', []):
+        if dev['mac'].lower() == mac.lower(): dev['orientation'] = orientation; trigger_redownload(mac); break
+    save_config(cfg)
+    return jsonify({'ok': True, 'orientation': orientation})
+
+
+@app.route('/api/queue', methods=['POST'])
+def queue_image_api():
+    data = request.get_json() or {}; base = data.get('base'); source = data.get('source')
+    if not base or not source: return jsonify({'ok': False, 'error': 'Missing base or source'}), 400
+    with _state_lock:
+        state = load_state(); current_queued = state.get('queued_image')
+        if current_queued and current_queued.get('base') == base and current_queued.get('source') == source:
+            state['queued_image'] = None; action = 'dequeued'
+        else:
+            state['queued_image'] = {'base': base, 'source': source}; action = 'queued'
+        _reset_round(state); state.setdefault('redownload', {})
+        if source == 'general':
+            cfg = load_config()
+            for dev in cfg.get('devices', []):
+                if dev.get('mode', 'group') == 'group' and dev.get('mac'): state['redownload'][dev['mac'].lower()] = True
+        else:
+            state['redownload'][source.lower()] = True
+        save_state(state)
+    return jsonify({'ok': True, 'action': action, 'queued_image': state['queued_image']})
+
+
+@app.route('/device_shuffle', methods=['POST'])
+def device_shuffle():
+    data = request.get_json() or {}; mac = data.get('mac'); shuffle_val = bool(data.get('shuffle', False))
+    if not mac: return jsonify({'ok': False, 'error': 'mac parameter required'}), 400
+    cfg = load_config(); device_found = False
+    for dev in cfg.get('devices', []):
+        if dev['mac'].lower() == mac.lower(): dev['shuffle'] = shuffle_val; device_found = True; trigger_redownload(mac); break
+    if not device_found: return jsonify({'ok': False, 'error': 'device not found'}), 404
+    save_config(cfg)
+    return jsonify({'ok': True, 'shuffle': shuffle_val})
+
+
+@app.route('/device_flip', methods=['POST'])
+def device_flip():
+    data = request.get_json() or {}; mac = data.get('mac'); orient_type = data.get('orient'); flip_val = bool(data.get('flip', False))
+    if not mac or orient_type not in ('l', 'p'): return jsonify({'ok': False, 'error': 'Missing parameters'}), 400
+    cfg = load_config(); device_found = False
+    for dev in cfg.get('devices', []):
+        if dev['mac'].lower() == mac.lower():
+            if orient_type == 'l': dev['flip_l'] = flip_val
+            else: dev['flip_p'] = flip_val
+            device_found = True; trigger_redownload(mac); break
+    if not device_found: return jsonify({'ok': False, 'error': 'device not found'}), 404
+    save_config(cfg)
+    return jsonify({'ok': True, 'flip': flip_val})
+
+
+@app.route('/device_debug', methods=['GET', 'POST'])
+def device_debug():
+    if request.method == 'POST':
+        if request.is_json:
+            data = request.get_json() or {}; mac = data.get('mac'); dbg_val = bool(data.get('debug', False))
+        else:
+            mac = request.form.get('mac'); dbg_val = request.form.get('debug') in ('1', 'true', 'True', True)
+    else:
+        mac = request.args.get('mac'); dbg_val = request.args.get('debug') in ('1', 'true', 'True', True)
+    if not mac: return jsonify({'ok': False, 'error': 'mac parameter required'}), 400
+    cfg = load_config(); device_found = False
+    for dev in cfg.get('devices', []):
+        if dev['mac'].lower() == mac.lower(): dev['debug'] = dbg_val; device_found = True; break
+    if not device_found: return jsonify({'ok': False, 'error': 'device not found'}), 404
+    save_config(cfg)
+    return jsonify({'ok': True, 'debug': dbg_val})
+
+
+@app.route('/device_rename', methods=['POST'])
+def device_rename():
+    data = request.get_json(); mac = data.get('mac'); new_name = data.get('name', '').strip()
+    if not mac or not new_name: return jsonify({'ok': False, 'error': 'Missing fields'}), 400
+    cfg = load_config()
+    for dev in cfg.get('devices', []):
+        if dev['mac'].lower() == mac.lower(): dev['name'] = new_name; break
+    save_config(cfg); return jsonify({'ok': True})
+
+
+@app.route('/device_mode', methods=['POST'])
+def device_mode():
+    data = request.get_json(); mac = data.get('mac'); mode = data.get('mode')
+    if not mac or mode not in ('group', 'individual'): return jsonify({'ok': False}), 400
+    cfg = load_config()
+    for dev in cfg.get('devices', []):
+        if dev['mac'].lower() == mac.lower():
+            if mode == 'individual' and not dev.get('images', []): return jsonify({'ok': False, 'error': 'No images assigned'}), 400
+            dev['mode'] = mode; trigger_redownload(mac); break
+    save_config(cfg); return jsonify({'ok': True, 'mode': mode})
+
+
+@app.route('/device_assign_image', methods=['POST'])
+def device_assign_image():
+    data = request.get_json(); mac = data.get('mac'); base = data.get('base')
+    if not mac or not base: return jsonify({'ok': False, 'error': 'Invalid parameters'}), 400
+    cfg = load_config(); enabled = load_enabled(); flags = _flags(enabled, base)
+    dev = next((d for d in cfg.get('devices', []) if d['mac'].lower() == mac.lower()), None)
+    if not dev: return jsonify({'ok': False, 'error': 'Device not found'}), 404
+    
+    dev_imgs = dev.setdefault('images', [])
+    if not any(img['base'] == base for img in dev_imgs):
+        dev_imgs.append({'base': base, 'l': flags['l'], 'p': flags['p']})
+    flags['l'] = False; flags['p'] = False; enabled[base] = flags
+    
+    save_enabled(enabled); save_config(cfg); trigger_redownload(mac)
+    return jsonify({'ok': True})
+
+
+@app.route('/device_remove_image', methods=['POST'])
+def device_remove_image():
+    data = request.get_json(); mac = data.get('mac'); base = data.get('base')
+    if not mac or not base: return jsonify({'ok': False, 'error': 'Invalid parameters'}), 400
+    
+    cfg = load_config()
+    for dev in cfg.get('devices', []):
+        if dev['mac'].lower() == mac.lower():
+            dev['images'] = [img for img in dev.get('images', []) if img['base'] != base]
+            if not dev['images']: dev['mode'] = 'group'
+            trigger_redownload(mac); break
+    save_config(cfg); return jsonify({'ok': True})
+
+
+@app.route('/device_move_image', methods=['POST'])
+def device_move_image():
+    data = request.get_json(); from_mac = data.get('from_mac'); to_mac = data.get('to_mac'); base = data.get('base')
+    if not from_mac or not to_mac or not base: return jsonify({'ok': False, 'error': 'Invalid parameters'}), 400
+    
+    cfg = load_config()
+    from_dev = next((d for d in cfg.get('devices', []) if d['mac'].lower() == from_mac.lower()), None)
+    to_dev = next((d for d in cfg.get('devices', []) if d['mac'].lower() == to_mac.lower()), None)
+    
+    if not from_dev or not to_dev:
+        return jsonify({'ok': False, 'error': 'Device not found'}), 404
+        
+    target_img = next((img for img in from_dev.get('images', []) if img['base'] == base), None)
+    if not target_img:
+        return jsonify({'ok': False, 'error': 'Image not found on source device'}), 404
+        
+    from_dev['images'] = [img for img in from_dev['images'] if img['base'] != base]
+    if not from_dev['images']: from_dev['mode'] = 'group'
+    to_dev.setdefault('images', []).append({'base': base, 'l': target_img.get('l', True), 'p': target_img.get('p', True)})
+    save_config(cfg); trigger_redownload(from_mac); trigger_redownload(to_mac)
+    return jsonify({'ok': True})
+
+
+@app.route('/device_reorder_images', methods=['POST'])
+def device_reorder_images():
+    data = request.get_json(); mac = data.get('mac'); order = data.get('order', [])
+    if not mac: return jsonify({'ok': False, 'error': 'Invalid parameters'}), 400
+    cfg = load_config()
+    for dev in cfg.get('devices', []):
+        if dev['mac'].lower() == mac.lower():
+            img_map = {img['base']: img for img in dev.get('images', [])}
+            dev['images'] = [img_map[b] for b in order if b in img_map]
+            trigger_redownload(mac); break
+    save_config(cfg); return jsonify({'ok': True})
+
+
+@app.route('/device_image_toggle_orient', methods=['POST'])
+def device_image_toggle_orient():
+    data = request.get_json(); mac = data.get('mac'); base = data.get('base'); orient = data.get('orient'); enabled = bool(data.get('enabled'))
+    if not mac or not base or orient not in ('l', 'p'): return jsonify({'ok': False, 'error': 'Invalid parameters'}), 400
+    cfg = load_config()
+    for dev in cfg.get('devices', []):
+        if dev['mac'].lower() == mac.lower():
+            for img in dev.get('images', []):
+                if img['base'] == base: img[orient] = enabled; trigger_redownload(mac); break
+            break
+    save_config(cfg); return jsonify({'ok': True})
 
 @app.route('/api/daily-config', methods=['GET'])
 @app.route('/api/config', methods=['GET'])
