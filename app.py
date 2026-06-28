@@ -3343,6 +3343,8 @@ def api_images():
     all_files = get_unified_index()
     
     mac = request.args.get('mac', '').strip().lower()
+    if not mac:
+        mac = request.headers.get('X-Device-Mac', '').strip().lower()
     dev_cfg = None
     if mac:
         dev_cfg = next((d for d in cfg.get('devices', []) if d['mac'].lower() == mac), None)
@@ -3402,6 +3404,8 @@ def api_daily_zip():
     devices = cfg.get('devices', [])
     
     mac = request.args.get('mac', '').strip().lower()
+    if not mac:
+        mac = request.headers.get('X-Device-Mac', '').strip().lower()
     dev_cfg = None
     if mac:
         dev_cfg = next((d for d in devices if d['mac'].lower() == mac), None)
@@ -3520,6 +3524,8 @@ def api_wakeup():
 
     data = request.get_json() or {}
     mac = data.get('mac', '').strip().lower()
+    if not mac:
+        mac = request.headers.get('X-Device-Mac', '').strip().lower()
     if not mac:
         mac = _caller_ip().lower()
 
