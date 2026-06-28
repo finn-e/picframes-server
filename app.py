@@ -1617,10 +1617,11 @@ HTML_TEMPLATE = r"""
                         <option value="none" {% if img.caption_mode == 'none' %}selected{% endif %}>None</option>
                         <option value="title" {% if img.caption_mode == 'title' %}selected{% endif %}>Title</option>
                         <option value="details" {% if img.caption_mode == 'details' %}selected{% endif %}>Details</option>
+                        <option value="title_details" {% if img.caption_mode == 'title_details' %}selected{% endif %}>Title & Details</option>
                         <option value="verbose" {% if img.caption_mode == 'verbose' %}selected{% endif %}>Verbose</option>
                     </select>
                     
-                    <div id="details-container-{{ img.base }}" style="margin-top:0.5rem; width:100%; max-width:180px; {% if img.caption_mode != 'details' %}display:none;{% endif %}">
+                    <div id="details-container-{{ img.base }}" style="margin-top:0.5rem; width:100%; max-width:180px; {% if img.caption_mode != 'details' and img.caption_mode != 'title_details' %}display:none;{% endif %}">
                         <textarea class="details-textarea" id="desc-{{ img.base }}" placeholder="Sarah and Kyle in Phoenix, AZ" maxlength="133" oninput="updateDescription('{{ img.base }}', this.value)" style="background:#1a202c; color:#fff; border:1px solid rgba(255,255,255,0.2); border-radius:4px; padding:0.25rem; font-size:0.8rem; width:100%; height:50px; resize:none; box-sizing:border-box;">{{ img.description }}</textarea>
                         <div style="display:flex; justify-content:flex-end; font-size:0.7rem; color:rgba(255,255,255,0.5); margin-top:2px;">
                             <span id="counter-{{ img.base }}">{{ img.description | length }}/133</span>
@@ -1837,7 +1838,7 @@ function toggleOrient(base, orient, enabled) {
 function updateCaptionMode(base, mode) {
     const container = document.getElementById(`details-container-${base}`);
     if (container) {
-        if (mode === 'details') {
+        if (mode === 'details' || mode === 'title_details') {
             container.style.display = 'block';
         } else {
             container.style.display = 'none';
@@ -2884,7 +2885,7 @@ def update_caption():
     flags = _flags(enabled, base)
     
     if mode is not None:
-        if mode not in ('none', 'title', 'details', 'verbose'):
+        if mode not in ('none', 'title', 'details', 'title_details', 'verbose'):
             return jsonify({'ok': False, 'error': 'Invalid mode'}), 400
         flags['caption_mode'] = mode
         
