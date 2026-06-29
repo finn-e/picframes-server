@@ -1486,6 +1486,16 @@ def delete_file(filename):
     return redirect(url_for('index'))
 
 
+@app.route('/images/<path:filename>')
+def serve_image(filename):
+    safe = os.path.normpath(filename)
+    for search_dir in [SHARE_DIR, os.path.join(SHARE_DIR, 'originals')]:
+        full = os.path.join(search_dir, safe)
+        if os.path.isfile(full):
+            return send_from_directory(search_dir, safe)
+    return '', 404
+
+
 @app.route('/rename', methods=['POST'])
 def rename_image():
     data = request.get_json(); old_base = data.get('old_base', '').strip(); new_base = data.get('new_base', '').strip()
