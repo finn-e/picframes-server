@@ -67,25 +67,3 @@ spec:
     targetPort: 8000
   selector:
     app: picframes
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: picframes
-  namespace: memories
-spec:
-  tls:
-  - hosts:
-    - picframes-server.treee.house
-    secretName: treee-house-wildcard-tls
-  rules:
-  - host: picframes-server.treee.house
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: picframes
-            port:
-              number: 8000
