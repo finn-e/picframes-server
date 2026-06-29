@@ -146,7 +146,7 @@ LOGIN_HTML = """<!DOCTYPE html>
 @app.before_request
 def auth_gate():
     path = request.path
-    if path.startswith('/api/') or path == '/device_orientation' or path == '/login' or path.startswith('/static/'):
+    if path.startswith('/api/') or path in ('/device_orientation', '/login', '/daily-config', '/daily-zip', '/refresh', '/update') or path.startswith('/static/'):
         return None
     if not session.get('authenticated'):
         return redirect(url_for('login'))
@@ -547,6 +547,7 @@ def load_state():
         "device_images": {},
         "redownload": {},
         "queued_image": None,
+        "device_indices": {},
     }
     try:
         conn = get_db()
@@ -558,7 +559,7 @@ def load_state():
                 defaults[key] = int(val)
             elif key == 'phase':
                 defaults[key] = val
-            elif key in ('phase_checkins', 'phase_ready_ack', 'phase_change_ack', 'round_assignments', 'last_seen', 'device_ips', 'device_images', 'redownload', 'queued_image'):
+            elif key in ('phase_checkins', 'phase_ready_ack', 'phase_change_ack', 'round_assignments', 'last_seen', 'device_ips', 'device_images', 'redownload', 'queued_image', 'device_indices'):
                 try: defaults[key] = json.loads(val)
                 except Exception: pass
         conn.close()
@@ -1665,6 +1666,24 @@ def device_orientation():
     return jsonify({'ok': True, 'orientation': orientation})
 
 
+@app.route('/api/change-orientation', methods=['POST'])
+def api_change_orientation():
+    mac = request.headers.get('X-Device-Mac', '').strip().lower()
+    data = request.get_json() or {}
+    orientation = data.get('orientation', '').strip()
+    server_orient = 'portrait' if 'portrait' in orientation else 'landscape'
+    if not mac or not orientation:
+        return jsonify({'ok': False}), 400
+    cfg = load_config()
+    for dev in cfg.get('devices', []):
+        if dev['mac'].lower() == mac:
+            dev['orientation'] = server_orient
+            trigger_redownload(mac)
+            break
+    save_config(cfg)
+    return jsonify({'ok': True, 'orientation': server_orient})
+
+
 @app.route('/api/queue', methods=['POST'])
 def queue_image_api():
     data = request.get_json() or {}; base = data.get('base'); source = data.get('source')
@@ -1832,12 +1851,16 @@ def device_image_toggle_orient():
             break
     save_config(cfg); return jsonify({'ok': True})
 
-@app.route('/api/daily-config', methods=['GET'])
 @app.route('/api/config', methods=['GET'])
 def api_config():
     cfg = load_config(); now = datetime.now()
     cfg['current_date'] = now.strftime('%Y-%m-%d'); cfg['timestamp'] = int(now.timestamp())
     return jsonify(cfg)
+
+
+@app.route('/api/daily-config', methods=['GET'])
+def api_daily_config():
+    return device_daily_config()
 
 
 @app.route('/api/images', methods=['GET'])
@@ -1877,6 +1900,107 @@ def api_update():
     if not hw: return "Missing hw profile parameter", 400
     update_url = get_latest_github_release_url(hw, version)
     return (update_url, 200) if update_url else ("", 204)
+
+@app.route('/daily-config', methods=['GET'])
+def device_daily_config():
+    import hashlib
+    cfg = load_config()
+    mac = request.headers.get('X-Device-Mac', '').strip().lower()
+
+    devices = cfg.get('devices', [])
+    dev_cfg = next((d for d in devices if d['mac'].lower() == mac), None)
+    if not dev_cfg and mac:
+        dev_cfg = {'mac': mac, 'name': mac, 'orientation': 'landscape', 'debug': False, 'mode': 'group', 'images': []}
+        devices.append(dev_cfg)
+        cfg['devices'] = devices
+        save_config(cfg)
+        logger.info(f"Auto-registered new device {mac} via /daily-config")
+
+    if not dev_cfg:
+        return jsonify({'error': 'unknown device'}), 403
+
+    orientation = dev_cfg.get('orientation', 'landscape')
+    sleep_interval = int(cfg.get('timer', 900))
+
+    if dev_cfg.get('mode', 'group') == 'individual':
+        orient_char = 'l' if orientation == 'landscape' else 'p'
+        active_bases = [item['base'] for item in dev_cfg.get('images', []) if item.get(orient_char, True)]
+    else:
+        active_bases = get_active_bases(orientation)
+
+    zip_version = hashlib.md5((','.join(active_bases) + orientation).encode()).hexdigest()[:8]
+
+    with _state_lock:
+        state = load_state()
+        state.setdefault('last_seen', {})[mac] = int(time.time())
+        state.setdefault('device_ips', {})[mac] = _caller_ip()
+        save_state(state)
+
+    return jsonify({
+        'orientation': orientation,
+        'sleep_interval': sleep_interval,
+        'daily_zip_version': zip_version,
+        'images': active_bases,
+        'enabled': {str(k): dict(v) for k, v in load_enabled().items()},
+    })
+
+
+@app.route('/daily-zip', methods=['GET'])
+def device_daily_zip():
+    return api_daily_zip()
+
+
+@app.route('/refresh', methods=['POST'])
+@app.route('/api/refresh', methods=['POST'])
+def device_refresh():
+    import hashlib
+    data = request.get_json() or {}
+    mac = data.get('mac', '').strip().lower() or request.headers.get('X-Device-Mac', '').strip().lower()
+    skip = bool(data.get('skip', False))
+
+    cfg = load_config()
+    devices = cfg.get('devices', [])
+    dev_cfg = next((d for d in devices if d['mac'].lower() == mac), None)
+    if not dev_cfg and mac:
+        dev_cfg = {'mac': mac, 'name': mac, 'orientation': 'landscape', 'debug': False, 'mode': 'group', 'images': []}
+        devices.append(dev_cfg)
+        cfg['devices'] = devices
+        save_config(cfg)
+        logger.info(f"Auto-registered new device {mac} via /refresh")
+
+    if not dev_cfg:
+        return jsonify({'error': 'unknown device'}), 403
+
+    orientation = dev_cfg.get('orientation', 'landscape')
+    sleep_interval = int(cfg.get('timer', 900))
+
+    with _state_lock:
+        state = load_state()
+        now_ts = int(time.time())
+        state.setdefault('last_seen', {})[mac] = now_ts
+        state.setdefault('device_ips', {})[mac] = _caller_ip()
+
+        device_indices = state.get('device_indices') or {}
+        current_idx = device_indices.get(mac, 0)
+
+        if skip:
+            if dev_cfg.get('mode', 'group') == 'individual':
+                orient_char = 'l' if orientation == 'landscape' else 'p'
+                pool = [item['base'] for item in dev_cfg.get('images', []) if item.get(orient_char, True)]
+            else:
+                pool = get_active_bases(orientation)
+            n = len(pool)
+            current_idx = (current_idx + 1) % n if n else 0
+            device_indices[mac] = current_idx
+            state['device_indices'] = device_indices
+        save_state(state)
+
+    return jsonify({
+        'image_index': current_idx,
+        'current_orientation': orientation,
+        'sleep_interval': sleep_interval,
+    })
+
 
 @app.route('/api/daily-zip', methods=['GET'])
 def api_daily_zip():
