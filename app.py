@@ -530,18 +530,9 @@ def save_crops(crops):
     except Exception as e:
         logger.error(f"SQL save_crops failed: {e}")
 
-PHASE_GATHERING = 'GATHERING'
-PHASE_READY     = 'READY'
-PHASE_CHANGE    = 'CHANGE'
-
 def load_state():
     defaults = {
         "current_index": 0, "last_sync_ts": 0, "last_change_ts": 0,
-        "phase": PHASE_GATHERING,
-        "phase_checkins":  {},
-        "phase_ready_ack": {},
-        "phase_change_ack": {},
-        "round_assignments": {},
         "last_seen": {},
         "device_ips": {},
         "device_images": {},
@@ -557,9 +548,7 @@ def load_state():
             key, val = row['key'], row['value']
             if key in ('current_index', 'last_sync_ts', 'last_change_ts'):
                 defaults[key] = int(val)
-            elif key == 'phase':
-                defaults[key] = val
-            elif key in ('phase_checkins', 'phase_ready_ack', 'phase_change_ack', 'round_assignments', 'last_seen', 'device_ips', 'device_images', 'redownload', 'queued_image', 'device_indices'):
+            elif key in ('last_seen', 'device_ips', 'device_images', 'redownload', 'queued_image', 'device_indices'):
                 try: defaults[key] = json.loads(val)
                 except Exception: pass
         conn.close()
@@ -764,20 +753,40 @@ def rgb_array_to_spectra6_bitstream_fast(img_array):
     packed = (hw_indices[:, 0::2] << 4) | hw_indices[:, 1::2]
     return packed.tobytes()
 
+def _flip_bitstream(data):
+    """Rotate EPD bitstream 180°: reverse pixel order and swap nibbles within each byte."""
+    return bytes(((b & 0x0F) << 4) | ((b & 0xF0) >> 4) for b in reversed(data))
+
+def ensure_bin_files(base):
+    """Generate all 4 bin variants for base if not already present. Returns True if all exist after call."""
+    variants = [('_l', '_l.bmp'), ('_p', '_p.bmp')]
+    ok = True
+    for orient_suffix, bmp_suffix in variants:
+        bmp_path = os.path.join(IMAGES_DIR, base + bmp_suffix)
+        if not os.path.exists(bmp_path):
+            ok = False
+            continue
+        u_path = os.path.join(IMAGES_DIR, base + orient_suffix + '_u.bin')
+        f_path = os.path.join(IMAGES_DIR, base + orient_suffix + '_f.bin')
+        try:
+            if not os.path.exists(u_path):
+                img = Image.open(bmp_path).convert('RGB')
+                data = rgb_array_to_spectra6_bitstream_fast(np.array(img, dtype=np.uint8))
+                with open(u_path, 'wb') as fh: fh.write(data)
+            else:
+                with open(u_path, 'rb') as fh: data = fh.read()
+            if not os.path.exists(f_path):
+                with open(f_path, 'wb') as fh: fh.write(_flip_bitstream(data))
+        except Exception as e:
+            logger.error(f"Error generating bin variants for {base}{orient_suffix}: {e}")
+            ok = False
+    return ok
+
 def ensure_bin_file(base, orientation):
-    bin_name = base + ('_l.bin' if orientation == 'landscape' else '_p.bin')
-    bin_path = os.path.join(IMAGES_DIR, bin_name)
-    if os.path.exists(bin_path): return bin_path
-    bmp_path = os.path.join(IMAGES_DIR, base + ('_l.bmp' if orientation == 'landscape' else '_p.bmp'))
-    if not os.path.exists(bmp_path): return None
-    try:
-        img = Image.open(bmp_path).convert('RGB')
-        bitstream = rgb_array_to_spectra6_bitstream_fast(np.array(img, dtype=np.uint8))
-        with open(bin_path, 'wb') as f: f.write(bitstream)
-        return bin_path
-    except Exception as e:
-        logger.error(f"Error generating bin map {bin_name}: {e}")
-        return None
+    """Legacy helper used by a few call sites — delegates to ensure_bin_files."""
+    ensure_bin_files(base)
+    u_path = os.path.join(IMAGES_DIR, base + ('_l_u.bin' if orientation == 'landscape' else '_p_u.bin'))
+    return u_path if os.path.exists(u_path) else None
 
 def convert_image(src_path, base):
     try:
@@ -795,7 +804,8 @@ def convert_image(src_path, base):
             h_crop, w_crop = h, int(h * target_ratio_l)
             y_crop, x_crop = 0, int(0.5 * (w - w_crop))
         land = img.crop((x_crop, y_crop, x_crop + w_crop, y_crop + h_crop)).resize((800, 480), Image.Resampling.LANCZOS)
-        Image.fromarray(dither_floyd_steinberg(np.array(land, dtype=np.float32), PALETTE)).save(os.path.join(IMAGES_DIR, base + LANDSCAPE_SUFFIX), format='BMP')
+        Image.fromarray(dither_floyd_steinberg(np.array(land, dtype=np.float32), PALETTE)).save(
+            os.path.join(IMAGES_DIR, base + LANDSCAPE_SUFFIX), format='BMP')
 
         target_ratio_p = 3.0/5.0
         if w / h >= target_ratio_p:
@@ -810,64 +820,16 @@ def convert_image(src_path, base):
 
         order = load_image_order()
         if base not in order: order.append(base); save_image_order(order)
-        
-        for suffix in ('_l.bin', '_p.bin'):
+
+        # Invalidate all existing bin variants so they're regenerated fresh
+        for suffix in ('_l_u.bin', '_l_f.bin', '_p_u.bin', '_p_f.bin', '_l.bin', '_p.bin'):
             p = os.path.join(IMAGES_DIR, base + suffix)
             if os.path.exists(p): os.remove(p)
-        ensure_bin_file(base, 'landscape')
-        ensure_bin_file(base, 'portrait')
+        ensure_bin_files(base)
         return True
     except Exception as e:
         logger.error(f"Conversion error: {e}"); return False
 
-def _build_shuffle_assignments(cfg, state):
-    devices = cfg.get('devices', []); sync_images = cfg.get('sync_images', False)
-    assignments = {}
-    if sync_images:
-        all_bases = get_active_bases(None)
-        if all_bases: assignments['__sync__'] = random.choice(all_bases)
-    else:
-        used = set()
-        for dev in devices:
-            mac = dev['mac'].lower(); orientation = dev.get('orientation', 'landscape')
-            if dev.get('mode', 'group') == 'individual':
-                dev_imgs = dev.get('images', [])
-                pool = [item['base'] for item in dev_imgs if item.get(orientation[0], True) and os.path.exists(os.path.join(IMAGES_DIR, item['base'] + orient_suffix(orientation)))]
-            else:
-                pool = [b for b in get_active_bases(orientation) if b not in used]
-                if not pool: pool = get_active_bases(orientation)
-        if pool:
-            chosen = random.choice(pool); used.add(chosen); assignments[mac] = chosen
-    state['round_assignments'] = assignments
-
-def _target_for_device(cfg, state, device_mac, device_idx, num_devices):
-    devices = cfg.get('devices', []); sync_images = cfg.get('sync_images', False)
-    dev_cfg = next((d for d in devices if d['mac'].lower() == device_mac.lower()), {})
-    orientation = dev_cfg.get('orientation', 'landscape')
-    suffix = orient_suffix(orientation)
-    
-    queued = state.get('queued_image')
-    if queued:
-        q_base = queued.get('base'); q_source = queued.get('source', '')
-        if (q_source == 'general' and dev_cfg.get('mode', 'group') == 'group') or \
-           (q_source.lower() == device_mac.lower() and dev_cfg.get('mode', 'group') == 'individual'):
-            return q_base + suffix
-    
-    shuffle = dev_cfg.get('shuffle', False) if dev_cfg.get('mode', 'group') == 'individual' else cfg.get('shuffle', False)
-    if shuffle:
-        base = state.get('round_assignments', {}).get('__sync__' if sync_images else device_mac.lower())
-        return (base + suffix) if base else None
-
-    active = dev_cfg.get('images', []) if dev_cfg.get('mode', 'group') == 'individual' else get_active_bases(orientation)
-    if dev_cfg.get('mode', 'group') == 'individual':
-        orient_char = orientation[0]
-        active = [item['base'] for item in active if item.get(orient_char, True) and os.path.exists(os.path.join(IMAGES_DIR, item['base'] + suffix))]
-    else:
-        active = get_active_bases(orientation)
-        
-    if not active: return None
-    n = len(active); idx = state.get('current_index', 0)
-    return active[idx % n if sync_images else (idx + device_idx) % n] + suffix
 
 HTML_TEMPLATE = r"""<!DOCTYPE html>
 <html lang="en">
@@ -1008,7 +970,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     </header>
 
     <div style="margin-bottom: 1.5rem;">
-        <div class="card-title" style="font-size: 0.9rem; color: var(--muted); margin-bottom: 0.75rem;">📶 Node Status (Phase: <strong>{{ phase }}</strong>)</div>
+        <div class="card-title" style="font-size: 0.9rem; color: var(--muted); margin-bottom: 0.75rem;">📶 Node Status</div>
         <div class="status-grid">
         {% for dev in config.devices %}
             {% set ts = node_status.get(dev.mac.lower(), 0) %}
@@ -1446,11 +1408,9 @@ def index():
     node_status = state.get('last_seen', {})
     device_ips = state.get('device_ips', {})
     device_images = state.get('device_images', {})
-    phase       = state.get('phase', PHASE_GATHERING)
-
     return render_template_string(HTML_TEMPLATE, images=images, config=config, state=state,
                                   node_status=node_status, device_ips=device_ips,
-                                  device_images=device_images, now_ts=now_ts, phase=phase,
+                                  device_images=device_images, now_ts=now_ts,
                                   image_by_base=image_by_base, version=SERVER_VERSION)
 
 
@@ -1666,6 +1626,41 @@ def device_orientation():
     return jsonify({'ok': True, 'orientation': orientation})
 
 
+@app.route('/api/register', methods=['POST'])
+def api_register():
+    import hashlib, hmac
+    data = request.get_json() or {}
+    mac      = data.get('mac', '').strip().lower()
+    username = data.get('username', '').strip()
+    password = data.get('password', '').strip()
+    if not mac:
+        return jsonify({'error': 'mac required'}), 400
+
+    # Derive stable device token from mac + secret
+    device_token = hmac.new(app.secret_key.encode(), mac.encode(), hashlib.sha256).hexdigest()[:32]
+
+    # Accept either the admin password or the already-issued device token
+    if password != ADMIN_PASSWORD and password != device_token:
+        return jsonify({'error': 'invalid credentials'}), 403
+
+    cfg = load_config()
+    devices = cfg.get('devices', [])
+    dev_cfg = next((d for d in devices if d['mac'].lower() == mac), None)
+    if not dev_cfg:
+        dev_cfg = {'mac': mac, 'name': username or mac, 'orientation': 'landscape',
+                   'debug': False, 'mode': 'group', 'images': [],
+                   'shuffle': False, 'flip_l': False, 'flip_p': False}
+        devices.append(dev_cfg)
+        cfg['devices'] = devices
+        save_config(cfg)
+        logger.info(f"Registered new device {mac} as '{username}'")
+    elif username and dev_cfg.get('name') == mac:
+        dev_cfg['name'] = username
+        save_config(cfg)
+
+    return jsonify({'token': device_token})
+
+
 @app.route('/api/change-orientation', methods=['POST'])
 def api_change_orientation():
     mac = request.headers.get('X-Device-Mac', '').strip().lower()
@@ -1694,7 +1689,7 @@ def queue_image_api():
             state['queued_image'] = None; action = 'dequeued'
         else:
             state['queued_image'] = {'base': base, 'source': source}; action = 'queued'
-        _reset_round(state); state.setdefault('redownload', {})
+        state.setdefault('redownload', {})
         if source == 'general':
             cfg = load_config()
             for dev in cfg.get('devices', []):
@@ -1942,6 +1937,8 @@ def device_daily_config():
         'daily_zip_version': zip_version,
         'images': active_bases,
         'enabled': {str(k): dict(v) for k, v in load_enabled().items()},
+        'landscape_flipped': bool(dev_cfg.get('flip_l', False)),
+        'portrait_flipped': bool(dev_cfg.get('flip_p', False)),
     })
 
 
@@ -2023,154 +2020,51 @@ def api_daily_zip():
         active_bases = [item['base'] for item in dev_cfg.get('images', []) if item.get(orient_char, True)]
     else:
         active_bases = get_active_bases(orientation)
-        
-    bin_suffix = '_l.bin' if orientation == 'landscape' else '_p.bin'
-    candidates = [b + bin_suffix for b in active_bases]
-    
+
+    # Determine which pre-computed variant to serve based on device flip flags
+    orient_char = 'l' if orientation == 'landscape' else 'p'
+    flip = dev_cfg.get('flip_l', False) if orientation == 'landscape' else dev_cfg.get('flip_p', False)
+    store_suffix = f'_{orient_char}_{"f" if flip else "u"}.bin'  # actual file on disk
+    zip_suffix   = f'_{orient_char}.bin'                          # name inside the zip
+
+    candidates = [b for b in active_bases]
     queued = state.get('queued_image')
-    if queued and ((queued.get('source') == 'general' and dev_cfg.get('mode', 'group') == 'group') or (queued.get('source', '').lower() == mac)):
-        q_filename = queued.get('base') + bin_suffix
-        if q_filename not in candidates: candidates.append(q_filename)
+    if queued and ((queued.get('source') == 'general' and dev_cfg.get('mode', 'group') == 'group') or
+                   (queued.get('source', '').lower() == mac)):
+        q_base = queued.get('base')
+        if q_base not in candidates: candidates.append(q_base)
 
     serializable_cfg = {
         "timer": int(cfg.get("timer", 900)),
-        "wake_timeout": int(cfg.get("wake_timeout", 45)),
         "shuffle": bool(cfg.get("shuffle", False)),
         "sync_images": bool(cfg.get("sync_images", False)),
-        "enabled": {str(k): dict(v) for k, v in load_enabled().items()}
+        "enabled": {str(k): dict(v) for k, v in load_enabled().items()},
+        "landscape_flipped": bool(dev_cfg.get('flip_l', False)),
+        "portrait_flipped": bool(dev_cfg.get('flip_p', False)),
     }
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, mode='w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         zf.writestr('config.json', json.dumps(serializable_cfg, indent=2))
-        manifest_data = json.dumps(candidates, indent=2)
+        zip_names = [b + zip_suffix for b in candidates]
+        manifest_data = json.dumps(zip_names, indent=2)
         zf.writestr('index.json', manifest_data)
         zf.writestr('list.json', manifest_data)
-        
-        for bin_filename in candidates:
-            bin_path = ensure_bin_file(bin_filename[:-6], orientation)
-            if bin_path and os.path.exists(bin_path):
-                if (orientation == 'landscape' and dev_cfg.get('flip_l', False)) or (orientation != 'landscape' and dev_cfg.get('flip_p', False)):
-                    try:
-                        with open(bin_path, 'rb') as f: data = f.read()
-                        flipped_data = bytes([ ((b & 0x0F) << 4) | ((b & 0xF0) >> 4) for b in reversed(data) ])
-                        zf.writestr(bin_filename, flipped_data)
-                    except Exception: zf.write(bin_path, arcname=bin_filename)
-                else: zf.write(bin_path, arcname=bin_filename)
+
+        for base in candidates:
+            ensure_bin_files(base)
+            bin_path = os.path.join(IMAGES_DIR, base + store_suffix)
+            if os.path.exists(bin_path):
+                zf.write(bin_path, arcname=base + zip_suffix)
 
     size = buf.tell(); buf.seek(0)
     return Response(buf, mimetype='application/zip',
                     headers={'Content-Disposition': 'attachment; filename="daily.zip"', 'Content-Length': str(size)})
 
 # ---------------------------------------------------------------------------
-# Wakeup — 3-phase protocol
-# ---------------------------------------------------------------------------
-
 def _caller_ip():
     if request.headers.get('X-Forwarded-For'): return request.headers['X-Forwarded-For'].split(',')[0].strip()
     return request.remote_addr
-
-def _advance_index(cfg, state, num_devices):
-    state['last_change_ts'] = int(time.time())
-    any_sequential = any(not (d.get('shuffle', False) if d.get('mode', 'group') == 'individual' else cfg.get('shuffle', False)) for d in cfg.get('devices', []))
-    if any_sequential or not cfg.get('devices'):
-        if cfg.get('sync_images', False):
-            pool = get_active_bases(None)
-            if pool: state['current_index'] = (state['current_index'] + 1) % len(pool)
-        else: state['current_index'] = state['current_index'] + num_devices
-
-def _reset_round(state):
-    state['phase'] = PHASE_GATHERING
-    state['phase_checkins'] = {}; state['phase_ready_ack'] = {}; state['phase_change_ack'] = {}
-    state['round_assignments'] = {}; state['queued_image'] = None
-
-@app.route('/api/wakeup', methods=['POST'])
-def api_wakeup():
-    cfg = load_config(); devices = cfg.get('devices', [])
-    data = request.get_json() or {}
-    mac = data.get('mac', '').strip().lower() or request.headers.get('X-Device-Mac', '').strip().lower() or _caller_ip().lower()
-    known_macs = [d['mac'].lower() for d in devices if d.get('mac')]
-
-    if mac not in known_macs:
-        ip = _caller_ip(); ip_device = next((d for d in devices if d.get('name') == ip and not d.get('mac')), None)
-        if ip_device: ip_device['mac'] = mac; ip_device['name'] = mac
-        else: devices.append({'mac': mac, 'name': mac, 'orientation': 'portrait', 'debug': False, 'mode': 'group', 'images': []})
-        cfg['devices'] = devices; save_config(cfg); known_macs = [d['mac'].lower() for d in devices]
-
-    dev_cfg = next((d for d in devices if d['mac'].lower() == mac), None)
-    if not dev_cfg: return Response("WAIT - None", mimetype='text/plain'), 200
-    device_idx = devices.index(dev_cfg); num_devices = len(devices)
-
-    with _state_lock:
-        state = load_state(); now_ts = int(time.time())
-        state.setdefault('last_seen', {})[mac] = now_ts
-        state.setdefault('device_ips', {})[mac] = _caller_ip()
-
-        if data.get('version') or request.headers.get('User-Agent', '').lower().startswith('micropython'):
-            version = data.get('version', '').strip() or request.args.get('version', '').strip()
-            latest_version = get_latest_firmware_version()
-            def parse_version(v_str):
-                try: return [int(x) for x in v_str.split('.')]
-                except Exception: return [0, 0, 0]
-            if not version or parse_version(version) < parse_version(latest_version):
-                save_state(state); return Response("UPDATE", mimetype='text/plain'), 200
-
-        if dev_cfg.get('debug', False):
-            save_state(state); return Response("DEBUG", mimetype='text/plain'), 200
-
-        phase = state.get('phase', PHASE_GATHERING)
-        if any((d.get('shuffle', False) if d.get('mode', 'group') == 'individual' else cfg.get('shuffle', False)) for d in devices) and not state.get('round_assignments'):
-            _build_shuffle_assignments(cfg, state)
-
-        target_file = _target_for_device(cfg, state, mac, device_idx, num_devices)
-        if target_file and target_file.endswith('.bmp'): target_file = target_file[:-4] + '.bin'
-        if target_file: ensure_bin_file(target_file[:-6], dev_cfg.get('orientation', 'landscape'))
-        redownload_suffix = " - REDOWNLOAD" if state.get('redownload', {}).get(mac, False) else ""
-
-        if phase == PHASE_GATHERING:
-            state.setdefault('phase_checkins', {})[mac] = now_ts
-            if set(known_macs) <= set(state['phase_checkins'].keys()):
-                state['phase'] = PHASE_READY; state['phase_ready_ack'] = {}; phase = PHASE_READY
-            else:
-                remaining = (state.setdefault('last_change_ts', now_ts) + cfg.get('timer', 900)) - now_ts
-                save_state(state)
-                msg_body = f"WAIT - {target_file}"
-                if remaining > 10:
-                    msg_body += f" - {remaining}"
-                if redownload_suffix:
-                    msg_body += redownload_suffix
-                return Response(msg_body, mimetype='text/plain'), 200
-
-        if phase == PHASE_READY:
-            state.setdefault('phase_ready_ack', {})[mac] = now_ts
-            if set(known_macs) <= set(state['phase_ready_ack'].keys()):
-                state['phase'] = PHASE_CHANGE; state['phase_change_ack'] = {}; phase = PHASE_CHANGE
-            else:
-                save_state(state); return Response(f"READY - {target_file}{redownload_suffix}", mimetype='text/plain'), 200
-
-        if phase == PHASE_CHANGE:
-            state.setdefault('phase_change_ack', {})[mac] = now_ts
-            state.setdefault('device_images', {})[mac] = target_file
-            if set(known_macs) <= set(state['phase_change_ack'].keys()):
-                _advance_index(cfg, state, num_devices)
-                if (now_ts - state.get('last_sync_ts', 0)) >= 86400: state['last_sync_ts'] = now_ts
-                _reset_round(state)
-            save_state(state); return Response(f"CHANGE - {target_file}{redownload_suffix}", mimetype='text/plain'), 200
-
-        save_state(state); return Response("WAIT - None", mimetype='text/plain'), 200
-
-
-@app.route('/api/wakeup/reset', methods=['POST'])
-def api_reset_state():
-    state = load_state(); _reset_round(state); save_state(state)
-    return jsonify({"ok": True, "phase": state['phase']})
-
-
-@app.route('/api/wakeup/next', methods=['POST'])
-def api_next_image():
-    with _state_lock:
-        state = load_state(); _reset_round(state); save_state(state)
-    return jsonify({"ok": True, "current_index": state.get('current_index', 0), "phase": state['phase']})
 
 # ---------------------------------------------------------------------------
 # Safe Global Post-Initialization Execution
