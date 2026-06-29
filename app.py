@@ -1486,6 +1486,12 @@ def delete_file(filename):
     return redirect(url_for('index'))
 
 
+@app.route('/originals/<path:filename>')
+def serve_original(filename):
+    safe = os.path.normpath(filename)
+    return send_from_directory(os.path.join(SHARE_DIR, 'originals'), safe)
+
+
 @app.route('/images/<path:filename>')
 def serve_image(filename):
     safe = os.path.normpath(filename)
