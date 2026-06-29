@@ -2,16 +2,19 @@ version: '3.8'
 
 services:
   picframes-server:
-    build: .
+    image: ghcr.io/finn-e/picframes:latest
     container_name: picframes-server
     ports:
-      - "8000:8080"
+      - "8000:8000"
     volumes:
       - ./data/share:/share
       - ./data/config:/config
     environment:
-      - PORT=8080
+      - PORT=8000
       - SHARE_DIR=/share
       - CONFIG_DIR=/config
       - FIRMWARE_DIR=/app/firmware
     restart: unless-stopped
+
+  # Build from source (used when GHCR image isn't available for your platform)
+  # Usage: docker-compose -f docker-compose.yml -f docker-compose.build.yml up
