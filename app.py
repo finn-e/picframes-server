@@ -703,18 +703,26 @@ def get_unified_index():
 
 def dither_floyd_steinberg(img_array, palette):
     h, w, _ = img_array.shape
+    orig   = img_array.astype(np.float32)
     padded = np.pad(img_array, ((0, 1), (1, 1), (0, 0)), mode='edge').astype(np.float32)
     for y in range(h):
         for x in range(1, w + 1):
+            # Pin exact black/white in the original — discard any accumulated error,
+            # and don't propagate any to neighbours.
+            orig_val = orig[y, x - 1]
+            if np.all(orig_val == 0):
+                padded[y, x] = [0, 0, 0]; continue
+            if np.all(orig_val == 255):
+                padded[y, x] = [255, 255, 255]; continue
+
             old_val = padded[y, x].copy()
             l1_dist_black = np.sum(np.abs(old_val - [0, 0, 0]))
             l1_dist_white = np.sum(np.abs(old_val - [255, 255, 255]))
-            
             if l1_dist_black < 15:
                 padded[y, x] = [0, 0, 0]; continue
             elif l1_dist_white < 15:
                 padded[y, x] = [255, 255, 255]; continue
-                
+
             diff = palette - old_val; dist = np.sum(diff ** 2, axis=1); idx = np.argmin(dist)
             new_val = palette[idx]; padded[y, x] = new_val; err = old_val - new_val
             padded[y,     x + 1] += err * (7.0 / 16.0)
