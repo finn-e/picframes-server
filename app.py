@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'picframes_secret_session_key_12345')
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin')
-SERVER_VERSION = "0.7.0"
+SERVER_VERSION = "0.7.1"
 
 # ---------------------------------------------------------------------------
 # Authentication Gate
@@ -2042,6 +2042,11 @@ def api_daily_zip():
     flip = dev_cfg.get('flip_l', False) if orientation == 'landscape' else dev_cfg.get('flip_p', False)
     store_suffix = f'_{orient_char}_{"f" if flip else "u"}.bin'  # actual file on disk
     zip_suffix   = f'_{orient_char}.bin'                          # name inside the zip
+
+    zip_version = hashlib.md5((','.join(active_bases) + orientation).encode()).hexdigest()[:8]
+    client_version = request.args.get('version', '').strip()
+    if client_version and client_version == zip_version:
+        return Response(status=304)
 
     candidates = [b for b in active_bases]
     queued = state.get('queued_image')
