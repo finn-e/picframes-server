@@ -1,7 +1,7 @@
 import logging
 import os
 
-from flask import Blueprint, jsonify, redirect, request, url_for
+from flask import Blueprint, jsonify, redirect, request, session, url_for
 
 import db
 from db import (
@@ -11,6 +11,7 @@ from db import (
     get_playlist_images, add_playlist_image, remove_playlist_image, reorder_playlist_images,
     get_device_playlist_id, set_device_playlist,
     get_global_setting, set_global_setting,
+    create_user, delete_user,
     trigger_redownload, flags, ORIGINALS_DIR, IMAGES_DIR, ALLOWED_EXTENSIONS,
     LANDSCAPE_SUFFIX, PORTRAIT_SUFFIX,
 )
@@ -398,4 +399,40 @@ def settings_default_playlist():
     data = request.get_json() or {}
     pid  = data.get('playlist_id')
     set_global_setting('default_playlist_id', str(pid) if pid is not None else '')
+    return jsonify({'ok': True})
+
+
+# ---------------------------------------------------------------------------
+# User management (admin only)
+# ---------------------------------------------------------------------------
+
+def _require_admin():
+    if not session.get('is_admin', session.get('authenticated')):
+        return jsonify({'ok': False, 'error': 'Forbidden'}), 403
+    return None
+
+
+@admin_bp.route('/users/create', methods=['POST'])
+def user_create():
+    err = _require_admin()
+    if err: return err
+    data     = request.get_json() or {}
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+    is_admin = bool(data.get('is_admin', False))
+    if not username or not password:
+        return jsonify({'ok': False, 'error': 'Username and password required'}), 400
+    uid = create_user(username, password, is_admin)
+    if uid is None:
+        return jsonify({'ok': False, 'error': 'Username already exists'}), 409
+    return jsonify({'ok': True, 'id': uid})
+
+
+@admin_bp.route('/users/<int:uid>/delete', methods=['POST'])
+def user_delete(uid):
+    err = _require_admin()
+    if err: return err
+    if uid == session.get('user_id'):
+        return jsonify({'ok': False, 'error': 'Cannot delete yourself'}), 400
+    delete_user(uid)
     return jsonify({'ok': True})

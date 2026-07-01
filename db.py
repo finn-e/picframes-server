@@ -62,6 +62,14 @@ def init_db():
     c.execute("""CREATE TABLE IF NOT EXISTS image_order (
         base TEXT PRIMARY KEY, sort_order INTEGER)""")
 
+    # Users table
+    c.execute("""CREATE TABLE IF NOT EXISTS users (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        username      TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        is_admin      INTEGER DEFAULT 0,
+        created_at    TEXT DEFAULT (datetime('now')))""")
+
     # Playlist tables
     c.execute("""CREATE TABLE IF NOT EXISTS playlists (
         id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -94,6 +102,8 @@ def init_db():
         _col(conn, 'enabled', col, defn)
 
     conn.commit()
+
+    _seed_admin(conn, c)
 
     # One-time migration from legacy JSON files
     c.execute("SELECT COUNT(*) FROM global_settings")
@@ -187,6 +197,72 @@ def _migrate_playlists(conn, c):
         logger.info(f"Created Default playlist (id={pid}) and migrated all devices to it")
     except Exception as e:
         logger.error(f"Playlist migration failed: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Users
+# ---------------------------------------------------------------------------
+
+def _seed_admin(conn, c):
+    from werkzeug.security import generate_password_hash
+    pwd = os.environ.get('ADMIN_PASSWORD', 'admin')
+    c.execute("""INSERT INTO users (username, password_hash, is_admin) VALUES ('admin', ?, 1)
+                 ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash""",
+              (generate_password_hash(pwd),))
+    conn.commit()
+
+
+def get_user_by_username(username):
+    try:
+        conn = get_db()
+        row = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+        conn.close()
+        return dict(row) if row else None
+    except Exception:
+        return None
+
+
+def check_user_password(username, password):
+    from werkzeug.security import check_password_hash
+    user = get_user_by_username(username)
+    if not user:
+        return False
+    return check_password_hash(user['password_hash'], password)
+
+
+def list_users():
+    try:
+        conn = get_db()
+        rows = conn.execute("SELECT id, username, is_admin, created_at FROM users ORDER BY id").fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        logger.error(f"list_users: {e}"); return []
+
+
+def create_user(username, password, is_admin=False):
+    from werkzeug.security import generate_password_hash
+    try:
+        conn = get_db()
+        c = conn.execute("INSERT INTO users (username, password_hash, is_admin) VALUES (?,?,?)",
+                         (username, generate_password_hash(password), 1 if is_admin else 0))
+        uid = c.lastrowid
+        conn.commit(); conn.close()
+        return uid
+    except sqlite3.IntegrityError:
+        return None
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
+def delete_user(user_id):
+    try:
+        conn = get_db()
+        conn.execute("DELETE FROM users WHERE id=?", (user_id,))
+        conn.commit(); conn.close()
+    except Exception as e:
+        logger.error(f"delete_user({user_id}): {e}")
 
 
 # ---------------------------------------------------------------------------

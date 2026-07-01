@@ -9,6 +9,7 @@ from db import (
     load_config, load_state, load_image_order, load_enabled, load_crops,
     load_playlists, get_playlist_images, get_playlist_devices,
     get_device_playlist_id, get_global_setting,
+    check_user_password, get_user_by_username, list_users,
     flags, ORIGINALS_DIR, IMAGES_DIR, LANDSCAPE_SUFFIX, PORTRAIT_SUFFIX,
     SHARE_DIR,
 )
@@ -24,7 +25,7 @@ LOGIN_HTML = """<!DOCTYPE html>
 <html>
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PicFrames Controller Login</title>
+  <title>PicFrames Login</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap');
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -53,12 +54,12 @@ LOGIN_HTML = """<!DOCTYPE html>
     }
     label { display: block; font-size: 0.85rem; color: hsl(220,12%,68%); margin-bottom: 6px; font-weight: 500; }
     .input-group { margin-bottom: 20px; }
-    input[type=password] {
+    input[type=text], input[type=password] {
       width: 100%; padding: 12px 14px; background: rgba(15,23,42,0.6);
       border: 1px solid rgba(255,255,255,0.11); border-radius: 10px;
       color: white; font-size: 0.95rem; transition: all 0.2s;
     }
-    input[type=password]:focus { outline: none; border-color: hsl(190,100%,55%); }
+    input[type=text]:focus, input[type=password]:focus { outline: none; border-color: hsl(190,100%,55%); }
     input[type=submit] {
       width: 100%; padding: 14px; border: none; border-radius: 10px;
       background: linear-gradient(135deg, hsl(190,100%,45%), hsl(260,90%,55%));
@@ -74,8 +75,12 @@ LOGIN_HTML = """<!DOCTYPE html>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
     <form method="POST">
       <div class="input-group">
-        <label>Admin Password</label>
-        <input type="password" name="password" required placeholder="Enter password" autofocus>
+        <label>Username</label>
+        <input type="text" name="username" required placeholder="Username" autofocus autocomplete="username">
+      </div>
+      <div class="input-group">
+        <label>Password</label>
+        <input type="password" name="password" required placeholder="Password" autocomplete="current-password">
       </div>
       <input type="submit" value="Sign In">
     </form>
@@ -86,23 +91,28 @@ LOGIN_HTML = """<!DOCTYPE html>
 
 @ui_bp.route('/login', methods=['GET', 'POST'])
 def login():
-    from flask import current_app, render_template_string
+    from flask import render_template_string
     if session.get('authenticated'):
         return redirect(url_for('ui.index'))
     error = None
     if request.method == 'POST':
-        pwd = request.form.get('password')
-        if pwd == current_app.config.get('ADMIN_PASSWORD', 'admin'):
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        if username and check_user_password(username, password):
+            user = get_user_by_username(username)
             session['authenticated'] = True
+            session['username'] = user['username']
+            session['is_admin'] = bool(user['is_admin'])
+            session['user_id'] = user['id']
             session.permanent = True
             return redirect(url_for('ui.index'))
-        error = "Invalid Password"
+        error = "Invalid username or password"
     return render_template_string(LOGIN_HTML, error=error)
 
 
 @ui_bp.route('/logout')
 def logout():
-    session.pop('authenticated', None)
+    session.clear()
     return redirect(url_for('ui.login'))
 
 
@@ -190,6 +200,12 @@ def index():
         for dev in config.get('devices', []) if dev.get('mac')
     }
 
+    current_user = {
+        'username': session.get('username', 'admin'),
+        'is_admin': session.get('is_admin', True),
+        'user_id':  session.get('user_id'),
+    }
+
     return render_template(
         'index.html',
         images=images,
@@ -206,4 +222,6 @@ def index():
         playlist_device_macs={str(k): list(v) for k, v in playlist_device_macs.items()},
         device_playlist_ids=device_playlist_ids,
         default_playlist_id=default_pid,
+        current_user=current_user,
+        users=list_users() if current_user['is_admin'] else [],
     )

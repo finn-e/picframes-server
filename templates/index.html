@@ -160,6 +160,24 @@
 
         /* Crop */
         .rename-input { font-weight: 600; font-size: 0.95rem; background: var(--input-bg); border: 1px solid var(--accent); border-radius: 6px; padding: 0.2rem 0.5rem; color: var(--text); font-family: inherit; max-width: 260px; }
+
+        /* Collapsible drawers */
+        .drawer-section { margin-bottom: 1.5rem; }
+        .drawer-toggle { display: flex; align-items: center; justify-content: space-between; cursor: pointer; padding: 0.5rem 0; border-bottom: 1px solid var(--border); margin-bottom: 1rem; user-select: none; }
+        .drawer-toggle:hover .drawer-section-title { color: var(--accent); }
+        .drawer-section-title { font-size: 1.3rem; font-weight: 600; display: flex; align-items: center; gap: 0.75rem; }
+        .drawer-chevron { font-size: 0.85rem; color: var(--muted); transition: transform 0.2s; flex-shrink: 0; }
+        .drawer-toggle.open .drawer-chevron { transform: rotate(90deg); }
+        .drawer-body.closed { display: none; }
+
+        /* User admin cards */
+        .user-mgmt-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.25rem; display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem; }
+        .user-mgmt-avatar { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), #a78bfa); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.1rem; color: white; flex-shrink: 0; }
+        .user-mgmt-info { flex: 1; min-width: 0; }
+        .user-mgmt-name { font-weight: 600; font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem; }
+        .user-mgmt-stats { font-size: 0.78rem; color: var(--muted); display: flex; gap: 1.25rem; margin-top: 0.25rem; flex-wrap: wrap; }
+        .badge-admin { background: rgba(245,158,11,0.15); color: var(--warning); border: 1px solid rgba(245,158,11,0.3); }
+        .add-user-form { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; margin-top: 1rem; }
     </style>
 </head>
 <body>
@@ -210,10 +228,10 @@
         <div class="card">
             <div class="card-title">👤 Account</div>
             <div class="user-card-header">
-                <div class="user-avatar">A</div>
+                <div class="user-avatar">{{ current_user.username[0]|upper }}</div>
                 <div>
-                    <div class="user-name">admin</div>
-                    <div style="font-size:0.8rem; color:var(--muted);">Administrator</div>
+                    <div class="user-name">{{ current_user.username }}</div>
+                    <div style="font-size:0.8rem; color:var(--muted);">{% if current_user.is_admin %}Administrator{% else %}User{% endif %}</div>
                 </div>
             </div>
             <div class="form-row">
@@ -276,7 +294,12 @@
     </div>
 
     <!-- Playlists Section -->
-    <div class="section-header">🎞 Playlists <span class="badge badge-blue">{{ playlists|length }}</span></div>
+    <div class="drawer-section">
+    <div class="drawer-toggle open" id="drawer-toggle-playlists" onclick="toggleDrawer('playlists')">
+        <span class="drawer-section-title">🎞 Playlists <span class="badge badge-blue">{{ playlists|length }}</span></span>
+        <span class="drawer-chevron">▶</span>
+    </div>
+    <div class="drawer-body" id="drawer-body-playlists">
     <div class="playlists-scroll" id="playlists-scroll">
         {% for pl in playlists %}
         {% set pl_devs = playlist_device_macs.get(pl.id|string, []) %}
@@ -316,7 +339,16 @@
         {% endfor %}
         <div class="playlist-add-card" onclick="createPlaylist()">＋ New Playlist</div>
     </div>
+    </div><!-- /drawer-body-playlists -->
+    </div><!-- /drawer-section playlists -->
 
+    <!-- Upload Drop Zone + Media Pool -->
+    <div class="drawer-section">
+    <div class="drawer-toggle open" id="drawer-toggle-media-pool" onclick="toggleDrawer('media-pool')">
+        <span class="drawer-section-title">🖼 Media Pool <span class="badge badge-blue">{{ images|length }}</span></span>
+        <span class="drawer-chevron">▶</span>
+    </div>
+    <div class="drawer-body" id="drawer-body-media-pool">
     <!-- Upload Drop Zone -->
     <div id="drop-zone">
         <strong>Drag &amp; drop photos here, or click to browse</strong>
@@ -328,11 +360,6 @@
     <div id="upload-progress">
         <div id="progress-label">Uploading assets…</div>
         <div class="progress-bar-wrap"><div class="progress-bar" id="progress-bar"></div></div>
-    </div>
-
-    <!-- Media Pool -->
-    <div class="section-header">
-        🖼️ Media Pool <span class="badge badge-blue">{{ images|length }}</span>
     </div>
 
     <!-- Pool controls: view toggle -->
@@ -498,6 +525,51 @@
             <button type="submit" class="btn btn-ghost">↻ Reconvert All Assets</button>
         </form>
     </div>
+    </div><!-- /drawer-body-media-pool -->
+    </div><!-- /drawer-section media-pool -->
+
+    {% if current_user.is_admin %}
+    <!-- User Admin Section -->
+    <div class="drawer-section">
+    <div class="drawer-toggle open" id="drawer-toggle-user-admin" onclick="toggleDrawer('user-admin')">
+        <span class="drawer-section-title">👥 User Admin <span class="badge badge-blue">{{ users|length }}</span></span>
+        <span class="drawer-chevron">▶</span>
+    </div>
+    <div class="drawer-body" id="drawer-body-user-admin">
+        {% for user in users %}
+        <div class="user-mgmt-card">
+            <div class="user-mgmt-avatar">{{ user.username[0]|upper }}</div>
+            <div class="user-mgmt-info">
+                <div class="user-mgmt-name">
+                    {{ user.username }}
+                    {% if user.is_admin %}<span class="badge badge-admin">Admin</span>{% endif %}
+                </div>
+                <div class="user-mgmt-stats">
+                    <span>🖼 {{ images|length }} images</span>
+                    <span>🎞 {{ playlists|length }} playlists</span>
+                    <span>📡 {{ config.devices|length }} devices</span>
+                </div>
+            </div>
+            {% if user.id != current_user.user_id %}
+            <button class="btn btn-danger btn-sm" onclick="deleteUser({{ user.id }}, '{{ user.username }}')">✕</button>
+            {% endif %}
+        </div>
+        {% endfor %}
+        <div class="add-user-form">
+            <div class="card-title" style="margin-bottom:0.75rem;">➕ Add User</div>
+            <div class="form-row" style="flex-wrap:wrap; gap:0.6rem;">
+                <input type="text" id="new-username" placeholder="Username" style="flex:1; min-width:140px;">
+                <input type="password" id="new-password" placeholder="Password" style="flex:1; min-width:140px;">
+                <label class="toggle-wrap">
+                    <input type="checkbox" class="toggle" id="new-is-admin">
+                    <span>Admin</span>
+                </label>
+                <button class="btn" onclick="createUser()">Add User</button>
+            </div>
+        </div>
+    </div><!-- /drawer-body-user-admin -->
+    </div><!-- /drawer-section user-admin -->
+    {% endif %}
 </div>
 
 <div id="toast"></div>
@@ -513,6 +585,7 @@ window.addEventListener('DOMContentLoaded', () => {
     const t = localStorage.getItem('picframes-theme') || 'default';
     document.documentElement.setAttribute('data-theme', t);
     const s = document.getElementById('theme-select'); if(s) s.value = t;
+    restoreDrawers();
     initCropOverlays();
 });
 
@@ -757,11 +830,11 @@ function listItemDrop(event) {
 
 // Grid view reorder
 function gridTileDragOver(event) {
-    const tile = event.currentTarget;
-    if(!dragBase || tile.dataset.base === dragBase) return;
+    // Always preventDefault so the browser allows drops within the grid
     event.preventDefault(); event.stopPropagation();
     event.dataTransfer.dropEffect = 'move';
-    tile.classList.add('reorder-over');
+    const tile = event.currentTarget;
+    if(dragBase && tile.dataset.base !== dragBase) tile.classList.add('reorder-over');
 }
 function gridTileDragLeave(event) {
     event.currentTarget.classList.remove('reorder-over');
@@ -770,15 +843,19 @@ function gridTileDrop(event) {
     const tile = event.currentTarget;
     tile.classList.remove('reorder-over');
     const base = event.dataTransfer.getData('text/plain') || dragBase;
-    if(!base || tile.dataset.base === base) return;
+    if(!base) return;
     event.preventDefault(); event.stopPropagation();
+    const targetBase = tile.dataset.base;
+    if(base === targetBase) return;
 
-    const grid   = tile.closest('.img-grid');
-    const srcEl  = grid.querySelector(`[data-base="${base}"]`);
-    if(!srcEl) return;
-    grid.insertBefore(srcEl, tile);
+    const grid = tile.closest('.img-grid');
+    if(!grid) return;
+    // Find the first tile for the target base and insert ALL dragged-base tiles before it
+    const targetFirst = grid.querySelector(`[data-base="${CSS.escape(targetBase)}"]`);
+    if(!targetFirst) return;
+    [...grid.querySelectorAll(`[data-base="${CSS.escape(base)}"]`)].forEach(t => grid.insertBefore(t, targetFirst));
 
-    // Collect unique bases from tiles in order
+    // Collect unique base order from remaining DOM
     const seen = new Set();
     const newOrder = [...grid.querySelectorAll('[data-base]')].reduce((acc, el) => {
         if(!seen.has(el.dataset.base)) { seen.add(el.dataset.base); acc.push(el.dataset.base); }
@@ -791,7 +868,7 @@ function gridTileDrop(event) {
 function imgDragStart(event, base) {
     dragBase = base;
     event.dataTransfer.setData('text/plain', base);
-    event.dataTransfer.effectAllowed = 'copy';
+    event.dataTransfer.effectAllowed = 'all';
     event.currentTarget.classList.add('dragging');
 }
 function imgDragEnd(event) {
@@ -829,6 +906,50 @@ function plDrop(event, pid) {
     if(!base) return;
     fetch(`/playlists/${pid}/add_image`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({base, disable_in_pool:true})})
         .then(r=>r.json()).then(d => { if(d.ok){ toast('Added to playlist'); window.location.reload(); } else toast('Error'); });
+}
+
+// ---- Collapsible drawers ----
+function toggleDrawer(key) {
+    const body   = document.getElementById('drawer-body-' + key);
+    const toggle = document.getElementById('drawer-toggle-' + key);
+    if(!body || !toggle) return;
+    const closing = !body.classList.contains('closed');
+    body.classList.toggle('closed', closing);
+    toggle.classList.toggle('open', !closing);
+    localStorage.setItem('picframes-drawer-' + key, closing ? 'closed' : 'open');
+}
+function restoreDrawers() {
+    ['playlists', 'media-pool', 'user-admin'].forEach(key => {
+        const saved = localStorage.getItem('picframes-drawer-' + key);
+        if(saved === 'closed') {
+            const body   = document.getElementById('drawer-body-' + key);
+            const toggle = document.getElementById('drawer-toggle-' + key);
+            if(body)   body.classList.add('closed');
+            if(toggle) toggle.classList.remove('open');
+        }
+    });
+}
+
+// ---- User management ----
+function createUser() {
+    const username = document.getElementById('new-username').value.trim();
+    const password = document.getElementById('new-password').value;
+    const is_admin = document.getElementById('new-is-admin').checked;
+    if(!username || !password) { toast('Username and password required'); return; }
+    fetch('/users/create', {method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({username, password, is_admin})})
+        .then(r=>r.json()).then(d => {
+            if(d.ok) { toast('User created'); window.location.reload(); }
+            else toast('Error: ' + (d.error || 'unknown'));
+        });
+}
+function deleteUser(uid, username) {
+    if(!confirm(`Delete user "${username}"?`)) return;
+    fetch(`/users/${uid}/delete`, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
+        .then(r=>r.json()).then(d => {
+            if(d.ok) { toast('User deleted'); window.location.reload(); }
+            else toast('Error: ' + (d.error || 'unknown'));
+        });
 }
 
 // ---- Crop overlays ----
