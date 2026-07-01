@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script>
+        (function() {
+            const t = localStorage.getItem('picframes-theme') || 'default';
+            document.documentElement.setAttribute('data-theme', t);
+        })();
+    </script>
+    <title>PicFrames Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #080d1a; --bg-gradient: radial-gradient(ellipse at 20% 0%, #1a2545 0%, var(--bg) 60%);
+            --card: rgba(16,24,48,0.65); --border: rgba(255,255,255,0.07);
+            --text: #f1f3f9; --muted: #8b95ae; --accent: #4f8ef7; --accent-h: #3371e0;
+            --danger: #ef4444; --danger-h: #dc2626; --success: #22c55e; --warning: #f59e0b;
+            --input-bg: rgba(0,0,0,0.4);
+        }
+        [data-theme="light"] {
+            --bg: #f4f6fa; --bg-gradient: linear-gradient(135deg, #eef2f7 0%, #f4f6fa 100%);
+            --card: #ffffff; --border: rgba(0,0,0,0.08); --text: #1e293b; --muted: #64748b;
+            --accent: #4f46e5; --accent-h: #4338ca; --input-bg: #ffffff;
+        }
+        [data-theme="really-dark"] {
+            --bg: #000; --bg-gradient: #000; --card: #0d0d0d; --border: #262626;
+            --text: #fff; --muted: #a3a3a3; --accent: #a855f7; --accent-h: #9333ea; --input-bg: #000;
+        }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Outfit', sans-serif; background: var(--bg-gradient); color: var(--text); min-height: 100vh; padding: 2rem 1.5rem; }
+        .container { width: 100%; max-width: 1400px; margin: 0 auto; }
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border); gap: 1rem; }
+        h1 { font-size: 2rem; font-weight: 700; background: linear-gradient(135deg, #60a5fa, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .version-tag { font-size: 0.85rem; font-weight: 600; background: rgba(255,255,255,0.08); border: 1px solid var(--border); color: var(--muted); padding: 0.15rem 0.5rem; border-radius: 6px; display: inline-block; margin-left: 0.6rem; }
+        .subtitle { color: var(--muted); font-size: 0.9rem; margin-top: 0.2rem; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
+        @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 1.5rem; backdrop-filter: blur(14px); }
+        .card-title { font-size: 0.85rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 1.2rem; display: flex; align-items: center; gap: 0.5rem; }
+        label { font-weight: 500; color: var(--muted); font-size: 0.9rem; }
+        input[type="number"], input[type="text"] { background: var(--input-bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.75rem; color: var(--text); font-size: 0.95rem; outline: none; font-family: inherit; }
+        input[type="number"] { width: 100px; }
+        select { background: var(--input-bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.45rem 0.7rem; color: var(--text); font-size: 0.85rem; outline: none; font-family: inherit; cursor: pointer; }
+        .form-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+        .toggle-wrap { display: flex; align-items: center; gap: 0.5rem; }
+        .toggle { appearance: none; width: 38px; height: 22px; background: rgba(255,255,255,0.12); border-radius: 11px; position: relative; cursor: pointer; border: 1px solid var(--border); flex-shrink: 0; }
+        .toggle::after { content: ''; position: absolute; width: 16px; height: 16px; border-radius: 50%; background: white; top: 2px; left: 2px; transition: transform 0.25s; }
+        .toggle:checked { background: var(--accent); border-color: var(--accent); }
+        .toggle:checked::after { transform: translateX(16px); }
+        .btn { background: var(--accent); color: white; border: none; border-radius: 8px; padding: 0.55rem 1.1rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; font-family: inherit; white-space: nowrap; text-decoration: none; }
+        .btn:hover { background: var(--accent-h); transform: translateY(-1px); }
+        .btn-danger { background: var(--danger); }
+        .btn-danger:hover { background: var(--danger-h); }
+        .btn-ghost { background: rgba(255,255,255,0.07); color: var(--text); border: 1px solid var(--border); }
+        .btn-ghost:hover { background: rgba(255,255,255,0.13); }
+        .btn-sm { padding: 0.35rem 0.7rem; font-size: 0.82rem; }
+        .btn-warning { background: rgba(245,158,11,0.2); color: var(--warning); border: 1px solid rgba(245,158,11,0.3); }
+        .orient-pill { display: inline-flex; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); flex-shrink: 0; }
+        .orient-pill button { background: rgba(0,0,0,0.25); border: none; cursor: pointer; padding: 0.3rem 0.6rem; color: var(--muted); font-size: 0.8rem; font-weight: 600; font-family: inherit; }
+        .orient-pill button.active-l { background: rgba(79,142,247,0.3); color: var(--accent); }
+        .orient-pill button.active-p { background: rgba(167,139,250,0.3); color: #a78bfa; }
+        .device-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.65rem 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+        .device-row:last-child { border-bottom: none; }
+        .device-mac { font-family: monospace; font-size: 0.8rem; color: var(--muted); }
+        .theme-selector-wrap { display: flex; align-items: center; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 12px; padding: 0.4rem 0.8rem; }
+        .theme-selector-wrap select { background: transparent; border: none; color: var(--text); font-weight: 600; }
+        #drop-zone { border: 2px dashed rgba(255,255,255,0.13); border-radius: 16px; padding: 2.5rem 2rem; text-align: center; cursor: pointer; background: var(--card); margin-bottom: 1.5rem; }
+        #drop-zone:hover, #drop-zone.dragover { border-color: var(--accent); background: rgba(79,142,247,0.05); }
+        #upload-progress { display: none; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.5rem; margin-bottom: 1.5rem; }
+        .progress-bar-wrap { background: rgba(255,255,255,0.08); border-radius: 4px; height: 6px; margin-top: 0.5rem; overflow: hidden; }
+        .progress-bar { height: 100%; background: var(--accent); border-radius: 4px; transition: width 0.3s; }
+        .section-header { margin: 2rem 0 1rem; font-size: 1.3rem; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 0.75rem; }
+        .badge { padding: 0.25rem 0.65rem; border-radius: 20px; font-size: 0.78rem; font-weight: 600; }
+        .badge-blue { background: rgba(79,142,247,0.15); color: var(--accent); border: 1px solid rgba(79,142,247,0.25); }
+        .badge-muted { background: rgba(255,255,255,0.07); color: var(--muted); border: 1px solid var(--border); }
+        .status-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px,1fr)); gap: 0.75rem; margin-bottom: 1.5rem; }
+        .status-node { background: rgba(0,0,0,0.25); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; transition: transform 0.2s; }
+        .status-node:hover { transform: translateY(-2px); }
+        .status-node.online { border-color: rgba(34,197,94,0.4); }
+        .node-mac { font-family: monospace; font-size: 0.8rem; color: var(--muted); }
+        .node-status { font-size: 0.8rem; color: var(--muted); margin-top: 0.25rem; }
+        .status-node.online .node-status { color: var(--success); }
+        .status-node-img-wrap { margin-top: 0.5rem; border-radius: 6px; overflow: hidden; height: 110px; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; background: #111; }
+        .status-node-img { width: 150px; height: 90px; object-fit: cover; }
+        .status-node-img.portrait-rot { width: 90px; height: 54px; transform: rotate(-90deg); }
+        #toast { position: fixed; bottom: 2rem; right: 2rem; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 0.75rem 1.25rem; opacity: 0; transition: opacity 0.3s; z-index: 999; pointer-events: none; backdrop-filter: blur(10px); }
+        #toast.show { opacity: 1; }
+
+        /* User card dropdown */
+        .user-card-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.25rem; }
+        .user-avatar { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), #a78bfa); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.1rem; color: white; flex-shrink: 0; }
+        .user-name { font-weight: 600; font-size: 1rem; }
+        .user-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
+
+        /* Playlists section */
+        .playlists-scroll { display: flex; gap: 1rem; overflow-x: auto; padding-bottom: 0.5rem; margin-bottom: 1rem; }
+        .playlist-card { min-width: 220px; max-width: 260px; background: var(--card); border: 2px solid var(--border); border-radius: 14px; padding: 1rem; flex-shrink: 0; cursor: pointer; transition: border-color 0.2s; position: relative; }
+        .playlist-card:hover { border-color: var(--accent); }
+        .playlist-card.drop-target { border-color: var(--success); background: rgba(34,197,94,0.08); }
+        .playlist-card-name { font-weight: 700; font-size: 1rem; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
+        .playlist-card-name span { flex: 1; }
+        .playlist-settings-row { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; }
+        .playlist-sleep-input { width: 75px; font-size: 0.85rem; }
+        .playlist-devices { display: flex; gap: 0.3rem; flex-wrap: wrap; margin-top: 0.5rem; }
+        .device-pill { padding: 0.2rem 0.5rem; background: rgba(79,142,247,0.15); color: var(--accent); border-radius: 12px; font-size: 0.75rem; font-weight: 600; border: 1px solid rgba(79,142,247,0.25); }
+        .playlist-add-card { min-width: 160px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.03); border: 2px dashed var(--border); border-radius: 14px; padding: 1rem; cursor: pointer; color: var(--muted); font-weight: 600; flex-shrink: 0; }
+        .playlist-add-card:hover { border-color: var(--accent); color: var(--accent); }
+
+        /* Pool view controls */
+        .pool-controls { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
+        .view-toggle { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+        .view-toggle button { padding: 0.4rem 0.85rem; border: none; background: rgba(255,255,255,0.03); color: var(--muted); font-family: inherit; font-weight: 600; font-size: 0.82rem; cursor: pointer; }
+        .view-toggle button.active { background: var(--accent); color: white; }
+
+        /* Pool tabs */
+        .pool-tabs { display: flex; gap: 0.4rem; border-bottom: 2px solid var(--border); margin-bottom: 1.25rem; overflow-x: auto; }
+        .pool-tab { padding: 0.6rem 1.1rem; border-radius: 10px 10px 0 0; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-bottom: none; color: var(--muted); font-weight: 600; font-size: 0.85rem; cursor: pointer; position: relative; top: 2px; white-space: nowrap; }
+        .pool-tab.active { background: var(--card); border-bottom: 2px solid var(--accent); color: var(--text); }
+        .pool-tab.drop-target { background: rgba(34,197,94,0.1); border-color: var(--success); }
+
+        /* Image cards — collapsed list view */
+        .img-card-list { background: var(--card); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 0.6rem; overflow: hidden; transition: opacity 0.2s; }
+        .img-card-list.disabled { opacity: 0.45; }
+        .img-card-list.dragging { opacity: 0.5; outline: 2px solid var(--accent); }
+        .img-card-list.reorder-over-top { border-top: 3px solid var(--accent); }
+        .img-card-list.reorder-over-bottom { border-bottom: 3px solid var(--accent); }
+        .drag-handle { color: var(--muted); cursor: grab; font-size: 0.9rem; padding: 0 0.2rem; flex-shrink: 0; user-select: none; }
+        .drag-handle:active { cursor: grabbing; }
+        .img-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.65rem 1rem; cursor: pointer; min-width: 0; }
+        .img-row-chevron { color: var(--muted); font-size: 0.75rem; flex-shrink: 0; transition: transform 0.2s; }
+        .img-card-list.open .img-row-chevron { transform: rotate(90deg); }
+        .img-row-name { font-weight: 600; font-size: 0.95rem; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; cursor: text; }
+        .img-row-actions { display: flex; align-items: center; gap: 0.4rem; flex-shrink: 0; }
+        .btn-toggle-lp { padding: 0.25rem 0.55rem; border-radius: 6px; font-size: 0.78rem; font-weight: 700; border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: var(--muted); cursor: pointer; font-family: inherit; }
+        .btn-toggle-lp.on-l { background: rgba(79,142,247,0.2); color: var(--accent); border-color: rgba(79,142,247,0.3); }
+        .btn-toggle-lp.on-p { background: rgba(167,139,250,0.2); color: #a78bfa; border-color: rgba(167,139,250,0.3); }
+        .btn-queue-sm { padding: 0.25rem 0.6rem; border-radius: 6px; font-size: 0.78rem; font-weight: 600; border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: var(--muted); cursor: pointer; font-family: inherit; }
+        .btn-queue-sm.active { background: var(--accent); color: white; border-color: var(--accent); }
+        .img-drawer { display: none; border-top: 1px solid var(--border); }
+        .img-card-list.open .img-drawer { display: block; }
+        .triple-preview { display: grid; grid-template-columns: 1fr 1fr 1fr; }
+        @media (max-width: 768px) { .triple-preview { grid-template-columns: 1fr; } }
+        .preview-cell { padding: 1rem; display: flex; flex-direction: column; align-items: center; background: rgba(0,0,0,0.18); border-right: 1px solid var(--border); }
+        .preview-cell:last-child { border-right: none; }
+        .preview-label { font-size: 0.75rem; text-transform: uppercase; color: var(--muted); margin-bottom: 0.5rem; font-weight: 600; width: 100%; display: flex; justify-content: space-between; align-items: center; }
+        .preview-img { max-width: 100%; max-height: 200px; border-radius: 6px; object-fit: contain; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+        .crop-container { position: relative; width: 100%; max-height: 200px; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 8px; background: #0b0f19; border: 1px solid var(--border); }
+        .crop-bg-img { display: block; max-width: 100%; max-height: 200px; object-fit: contain; pointer-events: none; }
+        .crop-overlay-box { position: absolute; border: 2px dashed var(--accent); background: rgba(79,142,247,0.22); cursor: grab; }
+        .drawer-actions { padding: 0.75rem 1rem; display: flex; justify-content: flex-end; gap: 0.6rem; background: rgba(0,0,0,0.08); border-top: 1px solid var(--border); }
+
+        /* Grid view */
+        .img-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.75rem; }
+        .img-grid-tile { background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; cursor: grab; position: relative; transition: outline 0.1s; }
+        .img-grid-tile.reorder-over { outline: 3px solid var(--accent); }
+        .img-grid-tile img { width: 100%; display: block; }
+        .img-grid-tile .tile-label { padding: 0.35rem 0.5rem; font-size: 0.75rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        /* Crop */
+        .rename-input { font-weight: 600; font-size: 0.95rem; background: var(--input-bg); border: 1px solid var(--accent); border-radius: 6px; padding: 0.2rem 0.5rem; color: var(--text); font-family: inherit; max-width: 260px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <div>
+            <h1>PicFrames Controller <span class="version-tag">v{{ version }}</span></h1>
+            <div class="subtitle">E-Paper Frame Fleet Manager &nbsp;·&nbsp; {{ images|length }} image(s)</div>
+        </div>
+        <div class="theme-selector-wrap">
+            <select id="theme-select" onchange="changeTheme(this.value)">
+                <option value="default">Default Dark</option>
+                <option value="light">Light</option>
+                <option value="really-dark">Really Dark</option>
+            </select>
+        </div>
+    </header>
+
+    <!-- Node Status Grid -->
+    <div style="margin-bottom: 1.5rem;">
+        <div class="card-title" style="font-size:0.9rem; color:var(--muted); margin-bottom:0.75rem;">📶 Node Status</div>
+        <div class="status-grid">
+        {% for dev in config.devices %}
+            {% set ts = node_status.get(dev.mac.lower(), 0) %}
+            {% set active_img = device_images.get(dev.mac.lower()) %}
+            {% set ip_addr = device_ips.get(dev.mac.lower(), 'DHCP') %}
+            <div class="status-node {% if ts > now_ts - 120 %}online{% endif %}">
+                <div style="font-weight:600;">{{ dev.name }}</div>
+                <div class="node-mac">{{ dev.mac }}</div>
+                <div style="font-size:0.75rem; color:var(--muted);">{{ ip_addr }}</div>
+                <div class="node-status">
+                    {% if ts > 0 %}Active {{ ((now_ts - ts)|int) }}s ago{% else %}Offline{% endif %}
+                </div>
+                {% if active_img %}
+                <div class="status-node-img-wrap">
+                    <img class="status-node-img {% if active_img.endswith('_p.bin') %}portrait-rot{% endif %}"
+                         src="{{ url_for('ui.serve_image', filename=active_img[:-4] + '.bmp') }}?t={{ now_ts }}">
+                </div>
+                {% endif %}
+            </div>
+        {% endfor %}
+        </div>
+    </div>
+
+    <!-- User + Devices row -->
+    <div class="grid-2">
+        <!-- User Card -->
+        <div class="card">
+            <div class="card-title">👤 Account</div>
+            <div class="user-card-header">
+                <div class="user-avatar">A</div>
+                <div>
+                    <div class="user-name">admin</div>
+                    <div style="font-size:0.8rem; color:var(--muted);">Administrator</div>
+                </div>
+            </div>
+            <div class="form-row">
+                <label>Default playlist for new devices:</label>
+                <select id="default-playlist-sel" onchange="setDefaultPlaylist(this.value)">
+                    <option value="">— Show all images —</option>
+                    {% for pl in playlists %}
+                    <option value="{{ pl.id }}" {% if default_playlist_id == pl.id|string %}selected{% endif %}>{{ pl.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="user-actions">
+                <a href="{{ url_for('ui.logout') }}" class="btn btn-ghost btn-sm">🚪 Sign Out</a>
+            </div>
+        </div>
+
+        <!-- Devices Card -->
+        <div class="card">
+            <div class="card-title">📡 Registered Hardware Nodes</div>
+            <div id="device-list">
+            {% for dev in config.devices %}
+            {% set dev_pid = device_playlist_ids.get(dev.mac.lower()) %}
+            <div class="device-row" data-idx="{{ loop.index0 }}">
+                <span style="color:var(--muted); font-size:0.8rem;">#{{ loop.index0 }}</span>
+                <div style="flex:1; min-width:0;">
+                    <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                        <span style="font-weight:600; cursor:pointer;" onclick="startDeviceRename(this, '{{ dev.mac }}')">{{ dev.name }}</span>
+                        <div class="orient-pill">
+                            <button type="button" class="{% if dev.orientation == 'landscape' %}active-l{% endif %}" onclick="setDeviceOrient('{{ dev.mac }}', 'landscape')">🌅 L</button>
+                            <button type="button" class="{% if dev.orientation == 'portrait' %}active-p{% endif %}" onclick="setDeviceOrient('{{ dev.mac }}', 'portrait')">🤳 P</button>
+                        </div>
+                        <select onchange="setDevicePlaylist('{{ dev.mac }}', this.value)" style="font-size:0.8rem;">
+                            <option value="">— No playlist —</option>
+                            {% for pl in playlists %}
+                            <option value="{{ pl.id }}" {% if dev_pid == pl.id %}selected{% endif %}>{{ pl.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:0.5rem; margin-top:0.2rem; flex-wrap:wrap;">
+                        <span class="device-mac">{{ dev.mac }}</span>
+                        <label style="font-size:0.78rem;" class="toggle-wrap">
+                            <input type="checkbox" class="toggle" {% if dev.flip_l %}checked{% endif %} onchange="setDeviceFlip('{{ dev.mac }}', 'l', this.checked)" title="Flip landscape">
+                            <span>Flip L</span>
+                        </label>
+                        <label style="font-size:0.78rem;" class="toggle-wrap">
+                            <input type="checkbox" class="toggle" {% if dev.flip_p %}checked{% endif %} onchange="setDeviceFlip('{{ dev.mac }}', 'p', this.checked)" title="Flip portrait">
+                            <span>Flip P</span>
+                        </label>
+                        <label style="font-size:0.78rem;" class="toggle-wrap">
+                            <input type="checkbox" class="toggle" {% if dev.debug %}checked{% endif %} onchange="setDeviceDebug('{{ dev.mac }}', this.checked)" title="Debug overlay">
+                            <span>Debug</span>
+                        </label>
+                    </div>
+                </div>
+                <button type="button" class="btn btn-danger btn-sm" onclick="removeDevice(this, '{{ dev.mac }}')">✕</button>
+            </div>
+            {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Playlists Section -->
+    <div class="section-header">🎞 Playlists <span class="badge badge-blue">{{ playlists|length }}</span></div>
+    <div class="playlists-scroll" id="playlists-scroll">
+        {% for pl in playlists %}
+        {% set pl_devs = playlist_device_macs.get(pl.id|string, []) %}
+        {% set pl_imgs = playlist_image_sets.get(pl.id|string, []) %}
+        <div class="playlist-card" id="playlist-card-{{ pl.id }}"
+             ondragover="plDragOver(event, {{ pl.id }})"
+             ondragleave="plDragLeave(event, {{ pl.id }})"
+             ondrop="plDrop(event, {{ pl.id }})">
+            <div class="playlist-card-name">
+                <span onclick="renamePlaylist(this, {{ pl.id }})">{{ pl.name }}</span>
+                <span class="badge badge-muted">{{ pl_imgs|length }}</span>
+                <button class="btn btn-danger btn-sm" style="padding:0.2rem 0.4rem;" onclick="deletePlaylist({{ pl.id }})">✕</button>
+            </div>
+            <div class="playlist-settings-row">
+                <label style="font-size:0.78rem;">Sleep:</label>
+                <input type="number" class="playlist-sleep-input" value="{{ pl.sleep_interval }}" min="10"
+                       onchange="updatePlaylistSetting({{ pl.id }}, 'sleep_interval', this.value)">
+                <label class="toggle-wrap" style="font-size:0.78rem;" title="Shuffle">
+                    <input type="checkbox" class="toggle" {% if pl.shuffle %}checked{% endif %}
+                           onchange="updatePlaylistSetting({{ pl.id }}, 'shuffle', this.checked)">
+                    <span>Shuffle</span>
+                </label>
+                <label class="toggle-wrap" style="font-size:0.78rem;" title="Sync — all frames show the same image">
+                    <input type="checkbox" class="toggle" {% if pl.sync %}checked{% endif %}
+                           onchange="updatePlaylistSetting({{ pl.id }}, 'sync', this.checked)">
+                    <span>Sync</span>
+                </label>
+            </div>
+            <div class="playlist-devices">
+                {% for mac in pl_devs %}
+                {% set dev = config.devices | selectattr('mac', 'equalto', mac) | first | default(None) %}
+                <span class="device-pill">{{ dev.name if dev else mac }}</span>
+                {% endfor %}
+                {% if not pl_devs %}<span style="font-size:0.75rem; color:var(--muted);">No frames assigned</span>{% endif %}
+            </div>
+        </div>
+        {% endfor %}
+        <div class="playlist-add-card" onclick="createPlaylist()">＋ New Playlist</div>
+    </div>
+
+    <!-- Upload Drop Zone -->
+    <div id="drop-zone">
+        <strong>Drag &amp; drop photos here, or click to browse</strong>
+        <p style="font-size:0.85rem; color:var(--muted); margin-top:0.25rem;">Supports JPG, PNG, WebP, BMP. Bitstreams packed automatically.</p>
+        <form id="upload-form" action="{{ url_for('admin.upload_file') }}" method="POST" enctype="multipart/form-data">
+            <input type="file" id="file-input" name="files" multiple style="display:none;">
+        </form>
+    </div>
+    <div id="upload-progress">
+        <div id="progress-label">Uploading assets…</div>
+        <div class="progress-bar-wrap"><div class="progress-bar" id="progress-bar"></div></div>
+    </div>
+
+    <!-- Media Pool -->
+    <div class="section-header">
+        🖼️ Media Pool <span class="badge badge-blue">{{ images|length }}</span>
+    </div>
+
+    <!-- Pool controls: view toggle -->
+    <div class="pool-controls">
+        <div class="view-toggle">
+            <button id="btn-list-view" class="active" onclick="setView('list')">☰ List</button>
+            <button id="btn-grid-view" onclick="setView('grid')">⊞ Grid</button>
+        </div>
+    </div>
+
+    <!-- Pool tabs -->
+    <div class="pool-tabs" id="pool-tabs">
+        <div class="pool-tab active" data-pool="general"
+             ondragover="poolTabDragOver(event, this)"
+             ondragleave="poolTabDragLeave(event, this)"
+             ondrop="poolTabDrop(event, 'general')">General Pool</div>
+        {% for pl in playlists %}
+        <div class="pool-tab" data-pool="playlist-{{ pl.id }}"
+             ondragover="poolTabDragOver(event, this)"
+             ondragleave="poolTabDragLeave(event, this)"
+             ondrop="poolTabDrop(event, 'playlist-{{ pl.id }}')">{{ pl.name }}</div>
+        {% endfor %}
+    </div>
+
+    <!-- Pool content areas -->
+    <div id="pool-content-general">
+        <div id="list-view-general" class="list-view">
+        {% for img in images %}
+        {% set disabled = (not img.l_on and not img.p_on) %}
+        {% set is_queued = (state.queued_image and state.queued_image.base == img.base) %}
+        <div class="img-card-list {% if disabled %}disabled{% endif %}" data-base="{{ img.base }}"
+             draggable="true"
+             ondragstart="imgDragStart(event, '{{ img.base }}')"
+             ondragend="imgDragEnd(event)"
+             ondragover="listItemDragOver(event)"
+             ondragleave="listItemDragLeave(event)"
+             ondrop="listItemDrop(event)">
+            <div class="img-row" onclick="toggleCard(this)">
+                <span class="drag-handle" title="Drag to reorder">⠿</span>
+                <span class="img-row-chevron">▶</span>
+                <span class="img-row-name" onclick="event.stopPropagation(); startRename(this, '{{ img.base }}')">{{ img.base.replace('_', ' ') }}</span>
+                <div class="img-row-actions" onclick="event.stopPropagation()">
+                    <button class="btn-toggle-lp {% if img.l_on %}on-l{% endif %}"
+                            onclick="toggleOrient('{{ img.base }}', 'l', !{{ 'true' if img.l_on else 'false' }}, this)"
+                            title="Landscape {% if img.l_on %}ON{% else %}OFF{% endif %}">L</button>
+                    <button class="btn-toggle-lp {% if img.p_on %}on-p{% endif %}"
+                            onclick="toggleOrient('{{ img.base }}', 'p', !{{ 'true' if img.p_on else 'false' }}, this)"
+                            title="Portrait {% if img.p_on %}ON{% else %}OFF{% endif %}">P</button>
+                    <button class="btn-queue-sm {% if is_queued %}active{% endif %}"
+                            onclick="queueImage('{{ img.base }}', this)"
+                            title="Queue Push">⚡</button>
+                    <form action="{{ url_for('admin.convert_file', filename=img.original_name) }}" method="POST" style="display:inline;">
+                        <button type="submit" class="btn-queue-sm" title="Reconvert asset" onclick="event.stopPropagation()">↻</button>
+                    </form>
+                    <form action="{{ url_for('admin.delete_file', filename=img.original_name) }}" method="POST" style="display:inline;" onsubmit="return confirm('Delete this asset?');">
+                        <button type="submit" class="btn-queue-sm" style="color:var(--danger);" title="Remove asset" onclick="event.stopPropagation()">🗑</button>
+                    </form>
+                </div>
+            </div>
+            <div class="img-drawer">
+                <div class="triple-preview">
+                    <div class="preview-cell">
+                        <div class="preview-label">Original</div>
+                        <img class="preview-img" src="{{ url_for('ui.serve_original', filename=img.original_name) }}" loading="lazy">
+                    </div>
+                    <div class="preview-cell">
+                        <div class="preview-label">
+                            <span>Landscape EPD</span>
+                            <span class="toggle-wrap">
+                                <input type="checkbox" class="toggle" {% if img.l_on %}checked{% endif %}
+                                       onchange="toggleOrient('{{ img.base }}', 'l', this.checked)">
+                            </span>
+                        </div>
+                        <div class="crop-container" data-base="{{ img.base }}" data-orient="l"
+                             data-offset="{{ img.offset_l }}" data-w="{{ img.orig_w }}" data-h="{{ img.orig_h }}">
+                            <img class="crop-bg-img" src="{{ url_for('ui.serve_image', filename=img.base + '_dithered.png') }}" onerror="this.style.display='none'" loading="lazy">
+                            <div class="crop-overlay-box"></div>
+                        </div>
+                    </div>
+                    <div class="preview-cell">
+                        <div class="preview-label">
+                            <span>Portrait EPD</span>
+                            <span class="toggle-wrap">
+                                <input type="checkbox" class="toggle" {% if img.p_on %}checked{% endif %}
+                                       onchange="toggleOrient('{{ img.base }}', 'p', this.checked)">
+                            </span>
+                        </div>
+                        <div class="crop-container" data-base="{{ img.base }}" data-orient="p"
+                             data-offset="{{ img.offset_p }}" data-w="{{ img.orig_w }}" data-h="{{ img.orig_h }}">
+                            <img class="crop-bg-img" src="{{ url_for('ui.serve_image', filename=img.base + '_dithered.png') }}" onerror="this.style.display='none'" loading="lazy">
+                            <div class="crop-overlay-box"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="drawer-actions">
+                    <form action="{{ url_for('admin.convert_file', filename=img.original_name) }}" method="POST">
+                        <button type="submit" class="btn btn-ghost btn-sm">↻ Reconvert</button>
+                    </form>
+                    <form action="{{ url_for('admin.delete_file', filename=img.original_name) }}" method="POST" onsubmit="return confirm('Delete this asset?');">
+                        <button type="submit" class="btn btn-danger btn-sm">🗑 Remove</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+        </div>
+
+        <div id="grid-view-general" class="grid-view" style="display:none;">
+        <div class="img-grid">
+        {% for img in images %}
+        {% if img.l_on and img.has_l %}
+        <div class="img-grid-tile" data-base="{{ img.base }}" draggable="true"
+             ondragstart="imgDragStart(event, '{{ img.base }}')" ondragend="imgDragEnd(event)"
+             ondragover="gridTileDragOver(event)" ondragleave="gridTileDragLeave(event)" ondrop="gridTileDrop(event)"
+             title="{{ img.base.replace('_', ' ') }} — Landscape">
+            <img src="{{ url_for('ui.serve_image', filename=img.base + '_l.bmp') }}" loading="lazy" alt="{{ img.base }}">
+            <div class="tile-label">{{ img.base.replace('_', ' ') }}</div>
+        </div>
+        {% endif %}
+        {% if img.p_on and img.has_p %}
+        <div class="img-grid-tile" data-base="{{ img.base }}" draggable="true"
+             ondragstart="imgDragStart(event, '{{ img.base }}')" ondragend="imgDragEnd(event)"
+             ondragover="gridTileDragOver(event)" ondragleave="gridTileDragLeave(event)" ondrop="gridTileDrop(event)"
+             title="{{ img.base.replace('_', ' ') }} — Portrait">
+            <img src="{{ url_for('ui.serve_image', filename=img.base + '_p.bmp') }}" loading="lazy" alt="{{ img.base }}" style="max-height:240px; object-fit:contain;">
+            <div class="tile-label">{{ img.base.replace('_', ' ') }} ↕</div>
+        </div>
+        {% endif %}
+        {% endfor %}
+        </div>
+        </div>
+    </div>
+
+    {% for pl in playlists %}
+    {% set pl_imgs_list = playlist_image_sets.get(pl.id|string, []) %}
+    <div id="pool-content-playlist-{{ pl.id }}" style="display:none;">
+        <div class="list-view">
+        {% for base in pl_imgs_list %}
+        {% set img = image_by_base.get(base) %}
+        {% if img %}
+        <div class="img-card-list" data-base="{{ base }}" data-playlist="{{ pl.id }}">
+            <div class="img-row" onclick="toggleCard(this)">
+                <span class="img-row-chevron">▶</span>
+                <span class="img-row-name">{{ base.replace('_', ' ') }}</span>
+                <div class="img-row-actions" onclick="event.stopPropagation()">
+                    <button class="btn-queue-sm" style="color:var(--danger);"
+                            onclick="removeFromPlaylist({{ pl.id }}, '{{ base }}')" title="Remove from playlist">✕</button>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        {% else %}
+        <p style="color:var(--muted); padding:1rem;">No images in this playlist yet. Drag images here from General Pool.</p>
+        {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+
+    <!-- Reconvert All -->
+    <div style="margin: 2rem 0; text-align: center;">
+        <form action="{{ url_for('admin.convert_all') }}" method="POST"
+              onsubmit="return confirm('Reconvert all assets? This may take a while.');">
+            <button type="submit" class="btn btn-ghost">↻ Reconvert All Assets</button>
+        </form>
+    </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// Playlist data from server
+const PLAYLISTS = {{ playlists | tojson }};
+const PLAYLIST_IMAGE_SETS = {{ playlist_image_sets | tojson }};
+
+// ---- Theme ----
+function changeTheme(t) { document.documentElement.setAttribute('data-theme', t); localStorage.setItem('picframes-theme', t); }
+window.addEventListener('DOMContentLoaded', () => {
+    const t = localStorage.getItem('picframes-theme') || 'default';
+    document.documentElement.setAttribute('data-theme', t);
+    const s = document.getElementById('theme-select'); if(s) s.value = t;
+    initCropOverlays();
+});
+
+// ---- Toast ----
+function toast(m, duration=2500) {
+    const e = document.getElementById('toast'); e.textContent = m;
+    e.classList.add('show'); clearTimeout(e._tid);
+    e._tid = setTimeout(() => e.classList.remove('show'), duration);
+}
+
+// ---- Upload ----
+const dz = document.getElementById('drop-zone');
+const fi = document.getElementById('file-input');
+dz.addEventListener('click', () => fi.click());
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+dz.addEventListener('drop', e => {
+    e.preventDefault(); dz.classList.remove('dragover');
+    if(e.dataTransfer.files.length) handleUpload(e.dataTransfer.files);
+});
+fi.addEventListener('change', () => { if(fi.files.length) handleUpload(fi.files); });
+
+function handleUpload(files) {
+    const fd = new FormData();
+    for(let f of files) fd.append('files', f);
+    document.getElementById('upload-progress').style.display = 'block';
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/upload');
+    xhr.upload.addEventListener('progress', e => {
+        if(e.lengthComputable) document.getElementById('progress-bar').style.width = Math.round(e.loaded/e.total*100) + '%';
+    });
+    xhr.onload = () => window.location.reload();
+    xhr.send(fd);
+}
+
+// ---- View toggle ----
+let currentView = 'list';
+function setView(v) {
+    currentView = v;
+    document.getElementById('btn-list-view').classList.toggle('active', v === 'list');
+    document.getElementById('btn-grid-view').classList.toggle('active', v === 'grid');
+    document.querySelectorAll('.list-view').forEach(el => el.style.display = v === 'list' ? '' : 'none');
+    document.querySelectorAll('.grid-view').forEach(el => el.style.display = v === 'grid' ? '' : 'none');
+}
+
+// ---- Pool tabs ----
+function switchPool(poolId) {
+    document.querySelectorAll('.pool-tab').forEach(t => t.classList.toggle('active', t.dataset.pool === poolId));
+    document.querySelectorAll('[id^="pool-content-"]').forEach(el => el.style.display = 'none');
+    const target = document.getElementById('pool-content-' + poolId);
+    if(target) target.style.display = '';
+}
+document.querySelectorAll('.pool-tab').forEach(t => {
+    t.addEventListener('click', () => switchPool(t.dataset.pool));
+});
+
+// ---- Collapse/expand image cards ----
+function toggleCard(rowEl) {
+    const card = rowEl.closest('.img-card-list');
+    if(!card) return;
+    card.classList.toggle('open');
+    if(card.classList.contains('open')) initCropOverlays(card);
+}
+
+// ---- Inline rename ----
+function startRename(span, base) {
+    if(span.querySelector('input')) return;
+    const input = document.createElement('input');
+    let done = false;
+    input.type = 'text'; input.className = 'rename-input'; input.value = base.replaceAll('_', ' ');
+    span.style.display = 'none';
+    span.parentElement.insertBefore(input, span);
+    input.focus(); input.select();
+    function commit() {
+        if(done) return; done = true;
+        const nb = input.value.trim();
+        if(!nb || nb.replaceAll(' ', '_') === base) { cancel(); return; }
+        fetch('/rename', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({old_base:base, new_base:nb})})
+            .then(r=>r.json()).then(d => { if(d.ok){toast('Renamed');window.location.reload();}else{toast('Error: '+d.error);cancel();} });
+    }
+    function cancel() { if(done) return; done = true; input.remove(); span.style.display = ''; }
+    input.addEventListener('keydown', ev => { if(ev.key==='Enter') commit(); if(ev.key==='Escape') cancel(); });
+    input.addEventListener('blur', commit);
+}
+
+function startDeviceRename(span, mac) {
+    if(span.querySelector('input')) return;
+    const input = document.createElement('input');
+    let done = false;
+    input.type = 'text'; input.className = 'rename-input'; input.value = span.textContent.trim();
+    span.style.display = 'none';
+    span.parentElement.insertBefore(input, span);
+    input.focus(); input.select();
+    function commit() {
+        if(done) return; done = true;
+        const name = input.value.trim();
+        if(!name) { cancel(); return; }
+        fetch('/device_rename', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mac, name})})
+            .then(r=>r.json()).then(d => { if(d.ok) window.location.reload(); else cancel(); });
+    }
+    function cancel() { if(done) return; done = true; input.remove(); span.style.display = ''; }
+    input.addEventListener('keydown', ev => { if(ev.key==='Enter') commit(); if(ev.key==='Escape') cancel(); });
+    input.addEventListener('blur', commit);
+}
+
+function renamePlaylist(span, pid) {
+    if(span.querySelector('input')) return;
+    const input = document.createElement('input');
+    let done = false;
+    input.type = 'text'; input.className = 'rename-input'; input.value = span.textContent.trim();
+    span.style.display = 'none';
+    span.parentElement.insertBefore(input, span);
+    input.focus(); input.select();
+    function commit() {
+        if(done) return; done = true;
+        const name = input.value.trim();
+        if(!name) { cancel(); return; }
+        fetch(`/playlists/${pid}/rename`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name})})
+            .then(r=>r.json()).then(d => { if(d.ok) window.location.reload(); else cancel(); });
+    }
+    function cancel() { if(done) return; done = true; input.remove(); span.style.display = ''; }
+    input.addEventListener('keydown', ev => { if(ev.key==='Enter') commit(); if(ev.key==='Escape') cancel(); });
+    input.addEventListener('blur', commit);
+}
+
+// ---- L/P toggles ----
+function toggleOrient(base, orient, enabled, btn) {
+    fetch('/toggle_orient', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({base, orient, enabled})})
+        .then(r=>r.json()).then(d => {
+            if(d.ok && btn) {
+                if(orient === 'l') { btn.classList.toggle('on-l', enabled); }
+                else { btn.classList.toggle('on-p', enabled); }
+                const card = btn.closest('.img-card-list');
+                if(card) { const disabled = !card.querySelector('.on-l') && !card.querySelector('.on-p'); card.classList.toggle('disabled', disabled); }
+            }
+        });
+}
+
+// ---- Queue push ----
+function queueImage(base, btn) {
+    fetch('/api/queue', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({base, source:'general'})})
+        .then(r=>r.json()).then(d => {
+            if(d.ok) { toast(d.action === 'queued' ? '⚡ Queued next' : 'Cleared queue'); if(btn) btn.classList.toggle('active', d.action === 'queued'); }
+        });
+}
+
+// ---- Device controls ----
+function setDeviceOrient(mac, orientation) {
+    fetch('/device_orientation', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mac, orientation})})
+        .then(r=>r.json()).then(d => { if(d.ok) { toast('Orientation → '+orientation); setTimeout(()=>window.location.reload(),500); } });
+}
+function setDevicePlaylist(mac, pid) {
+    fetch('/device_playlist', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mac, playlist_id: pid || null})})
+        .then(r=>r.json()).then(d => { if(d.ok) toast('Playlist updated'); });
+}
+function setDeviceFlip(mac, orient, flip) {
+    fetch('/device_flip', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mac, orient, flip})})
+        .then(r=>r.json()).then(d => { if(!d.ok) toast('Error'); });
+}
+function setDeviceDebug(mac, debug) {
+    fetch('/device_debug', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mac, debug})})
+        .then(r=>r.json()).then(d => { if(!d.ok) toast('Error'); });
+}
+function removeDevice(btn, mac) {
+    const row = btn.closest('.device-row');
+    if(row) row.remove();
+}
+
+// ---- Playlist management ----
+function createPlaylist() {
+    const name = prompt('Playlist name:', 'New Playlist');
+    if(!name) return;
+    fetch('/playlists/create', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name})})
+        .then(r=>r.json()).then(d => { if(d.ok) window.location.reload(); });
+}
+function deletePlaylist(pid) {
+    if(!confirm('Delete this playlist? Devices will be unassigned.')) return;
+    fetch(`/playlists/${pid}/delete`, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
+        .then(r=>r.json()).then(d => { if(d.ok) window.location.reload(); });
+}
+function updatePlaylistSetting(pid, key, value) {
+    const body = {};
+    if(key === 'sleep_interval') body[key] = parseInt(value);
+    else body[key] = (value === true || value === 'true' || value === 1);
+    fetch(`/playlists/${pid}/settings`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
+        .then(r=>r.json()).then(d => { if(d.ok) toast('Playlist updated'); });
+}
+function setDefaultPlaylist(pid) {
+    fetch('/settings/default_playlist', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({playlist_id: pid || null})})
+        .then(r=>r.json()).then(d => { if(d.ok) toast('Default playlist updated'); });
+}
+function removeFromPlaylist(pid, base) {
+    if(!confirm('Remove from playlist?')) return;
+    fetch(`/playlists/${pid}/remove_image`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({base})})
+        .then(r=>r.json()).then(d => { if(d.ok) window.location.reload(); });
+}
+
+// ---- Drag & drop: reorder vs playlist assignment ----
+// dragBase is set on dragstart; a "playlist drop" check takes priority
+let dragBase = null;
+let reorderTarget = null;  // which card we're hovering over
+
+// List view reorder
+function listItemDragOver(event) {
+    const card = event.currentTarget;
+    if(!dragBase || card.dataset.base === dragBase) return;
+    event.preventDefault(); event.stopPropagation();
+    event.dataTransfer.dropEffect = 'move';
+    // Determine top/bottom half
+    const rect = card.getBoundingClientRect();
+    const mid  = rect.top + rect.height / 2;
+    card.classList.remove('reorder-over-top', 'reorder-over-bottom');
+    card.classList.add(event.clientY < mid ? 'reorder-over-top' : 'reorder-over-bottom');
+    reorderTarget = { el: card, above: event.clientY < mid };
+}
+function listItemDragLeave(event) {
+    event.currentTarget.classList.remove('reorder-over-top', 'reorder-over-bottom');
+    reorderTarget = null;
+}
+function listItemDrop(event) {
+    const card = event.currentTarget;
+    card.classList.remove('reorder-over-top', 'reorder-over-bottom');
+    const base = event.dataTransfer.getData('text/plain') || dragBase;
+    if(!base || card.dataset.base === base) return;
+    event.preventDefault(); event.stopPropagation();
+
+    const list   = card.closest('#list-view-general') || card.parentElement;
+    const items  = [...list.querySelectorAll('.img-card-list')];
+    const srcEl  = list.querySelector(`.img-card-list[data-base="${base}"]`);
+    if(!srcEl) return;
+
+    const rect   = card.getBoundingClientRect();
+    const above  = event.clientY < rect.top + rect.height / 2;
+    if(above) list.insertBefore(srcEl, card);
+    else if(card.nextSibling) list.insertBefore(srcEl, card.nextSibling);
+    else list.appendChild(srcEl);
+
+    const newOrder = [...list.querySelectorAll('.img-card-list')].map(el => el.dataset.base);
+    fetch('/reorder', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({order: newOrder})})
+        .then(r=>r.json()).then(d => { if(!d.ok) toast('Reorder failed'); });
+}
+
+// Grid view reorder
+function gridTileDragOver(event) {
+    const tile = event.currentTarget;
+    if(!dragBase || tile.dataset.base === dragBase) return;
+    event.preventDefault(); event.stopPropagation();
+    event.dataTransfer.dropEffect = 'move';
+    tile.classList.add('reorder-over');
+}
+function gridTileDragLeave(event) {
+    event.currentTarget.classList.remove('reorder-over');
+}
+function gridTileDrop(event) {
+    const tile = event.currentTarget;
+    tile.classList.remove('reorder-over');
+    const base = event.dataTransfer.getData('text/plain') || dragBase;
+    if(!base || tile.dataset.base === base) return;
+    event.preventDefault(); event.stopPropagation();
+
+    const grid   = tile.closest('.img-grid');
+    const srcEl  = grid.querySelector(`[data-base="${base}"]`);
+    if(!srcEl) return;
+    grid.insertBefore(srcEl, tile);
+
+    // Collect unique bases from tiles in order
+    const seen = new Set();
+    const newOrder = [...grid.querySelectorAll('[data-base]')].reduce((acc, el) => {
+        if(!seen.has(el.dataset.base)) { seen.add(el.dataset.base); acc.push(el.dataset.base); }
+        return acc;
+    }, []);
+    fetch('/reorder', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({order: newOrder})})
+        .then(r=>r.json()).then(d => { if(!d.ok) toast('Reorder failed'); });
+}
+
+function imgDragStart(event, base) {
+    dragBase = base;
+    event.dataTransfer.setData('text/plain', base);
+    event.dataTransfer.effectAllowed = 'copy';
+    event.currentTarget.classList.add('dragging');
+}
+function imgDragEnd(event) {
+    dragBase = null;
+    document.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging'));
+}
+
+// Pool tab drag targets (for moving between General ↔ Playlist tabs via dragging)
+function poolTabDragOver(event, tabEl) {
+    if(!dragBase) return;
+    event.preventDefault(); event.dataTransfer.dropEffect = 'copy';
+    tabEl.classList.add('drop-target');
+}
+function poolTabDragLeave(event, tabEl) { tabEl.classList.remove('drop-target'); }
+function poolTabDrop(event, poolId) {
+    event.preventDefault();
+    const tabEl = event.currentTarget;
+    tabEl.classList.remove('drop-target');
+    const base = event.dataTransfer.getData('text/plain') || dragBase;
+    if(!base) return;
+    if(poolId === 'general') { return; } // Dragging back to general — do nothing (user manually re-enables L/P)
+    const pid = parseInt(poolId.replace('playlist-', ''));
+    if(isNaN(pid)) return;
+    fetch(`/playlists/${pid}/add_image`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({base, disable_in_pool:true})})
+        .then(r=>r.json()).then(d => { if(d.ok){ toast('Added to playlist'); window.location.reload(); } else toast('Error'); });
+}
+
+// Playlist card drop targets
+function plDragOver(event, pid) { event.preventDefault(); document.getElementById('playlist-card-'+pid)?.classList.add('drop-target'); }
+function plDragLeave(event, pid) { document.getElementById('playlist-card-'+pid)?.classList.remove('drop-target'); }
+function plDrop(event, pid) {
+    event.preventDefault();
+    document.getElementById('playlist-card-'+pid)?.classList.remove('drop-target');
+    const base = event.dataTransfer.getData('text/plain') || dragBase;
+    if(!base) return;
+    fetch(`/playlists/${pid}/add_image`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({base, disable_in_pool:true})})
+        .then(r=>r.json()).then(d => { if(d.ok){ toast('Added to playlist'); window.location.reload(); } else toast('Error'); });
+}
+
+// ---- Crop overlays ----
+function updateCropOverlay(container) {
+    const orient = container.dataset.orient, offset = parseFloat(container.dataset.offset);
+    const w = parseFloat(container.dataset.w), h = parseFloat(container.dataset.h), r = w/h;
+    const box = container.querySelector('.crop-overlay-box');
+    let widthPct, heightPct, leftPct, topPct;
+    if(orient === 'l') {
+        const tR = 5/3;
+        if(r <= tR) { widthPct=100; heightPct=(r/tR)*100; leftPct=0; topPct=offset*(100-heightPct); }
+        else { heightPct=100; widthPct=(tR/r)*100; topPct=0; leftPct=50-(widthPct/2); }
+    } else {
+        const tR = 3/5;
+        if(r >= tR) { heightPct=100; widthPct=(tR/r)*100; topPct=0; leftPct=offset*(100-widthPct); }
+        else { widthPct=100; heightPct=(r/tR)*100; leftPct=0; topPct=50-(heightPct/2); }
+    }
+    box.style.width=widthPct+'%'; box.style.height=heightPct+'%'; box.style.left=leftPct+'%'; box.style.top=topPct+'%';
+}
+
+function initCropOverlays(root) {
+    (root || document).querySelectorAll('.crop-container').forEach(container => {
+        if(container._cropInit) return; container._cropInit = true;
+        updateCropOverlay(container);
+        const box = container.querySelector('.crop-overlay-box');
+        let dragging=false, startY=0, startX=0, startOffset=0;
+        box.addEventListener('mousedown', e => {
+            e.preventDefault(); e.stopPropagation(); dragging=true;
+            startY=e.clientY; startX=e.clientX; startOffset=parseFloat(container.dataset.offset);
+        });
+        window.addEventListener('mousemove', e => {
+            if(!dragging) return;
+            const cr = container.getBoundingClientRect();
+            const orient = container.dataset.orient, w = parseFloat(container.dataset.w), h = parseFloat(container.dataset.h), r = w/h;
+            let delta = 0;
+            if(orient === 'l' && r <= 5/3) {
+                const hp = (r/(5/3))*100; const maxPx = cr.height*(1-hp/100);
+                if(maxPx>0) delta = (e.clientY-startY)/maxPx;
+            } else if(orient === 'p' && r >= 3/5) {
+                const wp = ((3/5)/r)*100; const maxPx = cr.width*(1-wp/100);
+                if(maxPx>0) delta = (e.clientX-startX)/maxPx;
+            }
+            container.dataset.offset = Math.max(0,Math.min(1,startOffset+delta));
+            updateCropOverlay(container);
+        });
+        window.addEventListener('mouseup', () => {
+            if(!dragging) return; dragging=false;
+            fetch('/recrop', {method:'POST', headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({base:container.dataset.base, orient:container.dataset.orient, offset:parseFloat(container.dataset.offset)})})
+                .then(r=>r.json()).then(d => { if(d.ok) toast('Asset re-cropped'); });
+        });
+    });
+}
+</script>
+</body>
+</html>
