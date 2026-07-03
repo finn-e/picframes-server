@@ -10,7 +10,7 @@ from db import init_db
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-SERVER_VERSION = "0.8.0"
+SERVER_VERSION = "0.9.0"
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin')
 
 

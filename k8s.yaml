@@ -6,7 +6,7 @@ metadata:
   labels:
     app: picframes
   annotations:
-    keel.sh/policy: force
+    keel.sh/policy: all
     keel.sh/trigger: poll
     keel.sh/pollSchedule: "@every 5m"
 spec:
@@ -21,13 +21,23 @@ spec:
     spec:
       containers:
       - name: server
-        image: ghcr.io/finn-e/picframes:latest
+        image: ghcr.io/finn-e/picframes:0.9.0
         imagePullPolicy: Always
         ports:
-        - containerPort: 8000
+        - containerPort: 8080
         env:
-        - name: PORT
-          value: "8000"
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: picframes-secrets
+              key: secret-key
+              optional: false
+        - name: ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: picframes-secrets
+              key: admin-password
+              optional: false
         - name: SHARE_DIR
           value: "/share"
         - name: CONFIG_DIR
@@ -67,7 +77,8 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-  - port: 8000
-    targetPort: 8000
+  - name: http
+    port: 8080
+    targetPort: 8080
   selector:
     app: picframes
