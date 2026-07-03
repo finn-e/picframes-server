@@ -18,6 +18,7 @@ from db import (
     get_active_bases, get_device_active_bases, get_unified_index,
     get_device_playlist_id, get_playlist_settings, set_device_playlist,
     get_global_setting, trigger_redownload, state_lock, IMAGES_DIR,
+    record_battery, get_battery_history,
 )
 from image import ensure_bin_files
 
@@ -292,6 +293,16 @@ def _refresh_inner():
     if not dev_cfg:
         return jsonify({'error': 'unknown device'}), 403
 
+    # Record battery level if provided
+    battery = data.get('battery')
+    if battery is not None:
+        try:
+            pct = int(battery)
+            if 0 <= pct <= 100:
+                record_battery(mac, pct)
+        except (TypeError, ValueError):
+            pass
+
     orientation  = dev_cfg.get('orientation', 'landscape')
     pid          = get_device_playlist_id(mac)
     pl_settings  = get_playlist_settings(pid)
@@ -345,6 +356,18 @@ def _refresh_inner():
 @api_bp.route('/refresh',     methods=['POST'])
 def device_refresh():
     return _refresh_inner()
+
+
+@api_bp.route('/api/battery-history/<mac>', methods=['GET'])
+def battery_history(mac):
+    days = request.args.get('days', 7)
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        days = 7
+    since_ts = int(time.time()) - days * 86400
+    history = get_battery_history(mac, since_ts=since_ts)
+    return jsonify({"mac": mac.lower(), "history": history})
 
 
 # ---------------------------------------------------------------------------

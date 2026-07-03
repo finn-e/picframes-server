@@ -204,6 +204,7 @@
             {% set ts = node_status.get(dev.mac.lower(), 0) %}
             {% set active_img = device_images.get(dev.mac.lower()) %}
             {% set ip_addr = device_ips.get(dev.mac.lower(), 'DHCP') %}
+            {% set batt = device_battery.get(dev.mac.lower()) %}
             <div class="status-node {% if ts > now_ts - 120 %}online{% endif %}">
                 <div style="font-weight:600;">{{ dev.name }}</div>
                 <div class="node-mac">{{ dev.mac }}</div>
@@ -211,6 +212,14 @@
                 <div class="node-status">
                     {% if ts > 0 %}Active {{ ((now_ts - ts)|int) }}s ago{% else %}Offline{% endif %}
                 </div>
+                {% if batt %}
+                <div style="font-size:0.75rem; color:var(--muted); margin-top:0.2rem;">
+                    <span class="batt-badge" style="cursor:pointer;" onclick="toggleBattGraph('{{ dev.mac.lower() }}', this)" title="Battery history">🔋 {{ batt.pct }}%</span>
+                </div>
+                <div id="batt-graph-{{ dev.mac.lower() }}" style="display:none; margin-top:0.4rem;">
+                    <canvas width="180" height="60" style="border:1px solid var(--border); border-radius:4px; background:var(--card);"></canvas>
+                </div>
+                {% endif %}
                 {% if active_img %}
                 <div class="status-node-img-wrap">
                     <img class="status-node-img {% if active_img.endswith('_p.bin') %}portrait-rot{% endif %}"
@@ -500,13 +509,65 @@
         {% for base in pl_imgs_list %}
         {% set img = image_by_base.get(base) %}
         {% if img %}
-        <div class="img-card-list" data-base="{{ base }}" data-playlist="{{ pl.id }}">
+        {% set disabled = (not img.l_on and not img.p_on) %}
+        {% set is_queued = (state.queued_image and state.queued_image.base == img.base) %}
+        <div class="img-card-list {% if disabled %}disabled{% endif %}" data-base="{{ base }}" data-playlist="{{ pl.id }}">
             <div class="img-row" onclick="toggleCard(this)">
                 <span class="img-row-chevron">▶</span>
                 <span class="img-row-name">{{ base.replace('_', ' ') }}</span>
                 <div class="img-row-actions" onclick="event.stopPropagation()">
+                    <button class="btn-toggle-lp {% if img.l_on %}on-l{% endif %}"
+                            onclick="toggleOrient('{{ img.base }}', 'l', !{{ 'true' if img.l_on else 'false' }}, this)"
+                            title="Landscape {% if img.l_on %}ON{% else %}OFF{% endif %}">L</button>
+                    <button class="btn-toggle-lp {% if img.p_on %}on-p{% endif %}"
+                            onclick="toggleOrient('{{ img.base }}', 'p', !{{ 'true' if img.p_on else 'false' }}, this)"
+                            title="Portrait {% if img.p_on %}ON{% else %}OFF{% endif %}">P</button>
+                    <button class="btn-queue-sm {% if is_queued %}active{% endif %}"
+                            onclick="queueImage('{{ img.base }}', this)"
+                            title="Queue Push">⚡</button>
                     <button class="btn-queue-sm" style="color:var(--danger);"
                             onclick="removeFromPlaylist({{ pl.id }}, '{{ base }}')" title="Remove from playlist">✕</button>
+                </div>
+            </div>
+            <div class="img-drawer">
+                <div class="triple-preview">
+                    <div class="preview-cell">
+                        <div class="preview-label">Original</div>
+                        <img class="preview-img" src="{{ url_for('ui.serve_original', filename=img.original_name) }}" loading="lazy">
+                    </div>
+                    <div class="preview-cell">
+                        <div class="preview-label">
+                            <span>Landscape EPD</span>
+                            <span class="toggle-wrap">
+                                <input type="checkbox" class="toggle" {% if img.l_on %}checked{% endif %}
+                                       onchange="toggleOrient('{{ img.base }}', 'l', this.checked)">
+                            </span>
+                        </div>
+                        <div class="crop-container" data-base="{{ img.base }}" data-orient="l"
+                             data-offset="{{ img.offset_l }}" data-w="{{ img.orig_w }}" data-h="{{ img.orig_h }}">
+                            <img class="crop-bg-img" src="{{ url_for('ui.serve_image', filename=img.base + '_dithered.png') }}" onerror="this.style.display='none'" loading="lazy">
+                            <div class="crop-overlay-box"></div>
+                        </div>
+                    </div>
+                    <div class="preview-cell">
+                        <div class="preview-label">
+                            <span>Portrait EPD</span>
+                            <span class="toggle-wrap">
+                                <input type="checkbox" class="toggle" {% if img.p_on %}checked{% endif %}
+                                       onchange="toggleOrient('{{ img.base }}', 'p', this.checked)">
+                            </span>
+                        </div>
+                        <div class="crop-container" data-base="{{ img.base }}" data-orient="p"
+                             data-offset="{{ img.offset_p }}" data-w="{{ img.orig_w }}" data-h="{{ img.orig_h }}">
+                            <img class="crop-bg-img" src="{{ url_for('ui.serve_image', filename=img.base + '_dithered.png') }}" onerror="this.style.display='none'" loading="lazy">
+                            <div class="crop-overlay-box"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="drawer-actions">
+                    <form action="{{ url_for('admin.convert_file', filename=img.original_name) }}" method="POST">
+                        <button type="submit" class="btn btn-ghost btn-sm">↻ Reconvert</button>
+                    </form>
                 </div>
             </div>
         </div>
@@ -514,6 +575,30 @@
         {% else %}
         <p style="color:var(--muted); padding:1rem;">No images in this playlist yet. Drag images here from General Pool.</p>
         {% endfor %}
+        </div>
+
+        <div class="grid-view" style="display:none;">
+        <div class="img-grid">
+        {% for base in pl_imgs_list %}
+        {% set img = image_by_base.get(base) %}
+        {% if img %}
+        {% if img.l_on and img.has_l %}
+        <div class="img-grid-tile" data-base="{{ img.base }}"
+             title="{{ img.base.replace('_', ' ') }} — Landscape">
+            <img src="{{ url_for('ui.serve_image', filename=img.base + '_l.bmp') }}" loading="lazy" alt="{{ img.base }}">
+            <div class="tile-label">{{ img.base.replace('_', ' ') }}</div>
+        </div>
+        {% endif %}
+        {% if img.p_on and img.has_p %}
+        <div class="img-grid-tile" data-base="{{ img.base }}"
+             title="{{ img.base.replace('_', ' ') }} — Portrait">
+            <img src="{{ url_for('ui.serve_image', filename=img.base + '_p.bmp') }}" loading="lazy" alt="{{ img.base }}" style="max-height:240px; object-fit:contain;">
+            <div class="tile-label">{{ img.base.replace('_', ' ') }} ↕</div>
+        </div>
+        {% endif %}
+        {% endif %}
+        {% endfor %}
+        </div>
         </div>
     </div>
     {% endfor %}
@@ -1001,6 +1086,79 @@ function initCropOverlays(root) {
                 body:JSON.stringify({base:container.dataset.base, orient:container.dataset.orient, offset:parseFloat(container.dataset.offset)})})
                 .then(r=>r.json()).then(d => { if(d.ok) toast('Asset re-cropped'); });
         });
+    });
+}
+
+function toggleBattGraph(mac, badgeEl) {
+    var panel = document.getElementById('batt-graph-' + mac);
+    if (!panel) return;
+    if (panel.style.display !== 'none') {
+        panel.style.display = 'none';
+        return;
+    }
+    panel.style.display = 'block';
+    var canvas = panel.querySelector('canvas');
+    fetch('/api/battery-history/' + encodeURIComponent(mac) + '?days=7')
+        .then(function(r) { return r.json(); })
+        .then(function(data) { drawBattChart(canvas, data.history); })
+        .catch(function() {});
+}
+
+function drawBattChart(canvas, history) {
+    var ctx = canvas.getContext('2d');
+    var W = canvas.width, H = canvas.height;
+    var pad = { top: 6, bottom: 14, left: 24, right: 6 };
+    ctx.clearRect(0, 0, W, H);
+
+    var style = getComputedStyle(document.documentElement);
+    var colorMuted  = style.getPropertyValue('--muted').trim()  || '#888';
+    var colorAccent = style.getPropertyValue('--accent').trim() || '#4f8ef7';
+    var colorBorder = style.getPropertyValue('--border').trim() || '#333';
+
+    if (!history || history.length === 0) {
+        ctx.fillStyle = colorMuted;
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('No data', W / 2, H / 2);
+        return;
+    }
+
+    var minTs = history[0].ts, maxTs = history[history.length - 1].ts;
+    var tsRange = maxTs - minTs || 1;
+    var chartW = W - pad.left - pad.right;
+    var chartH = H - pad.top - pad.bottom;
+
+    function xOf(ts)  { return pad.left + (ts - minTs) / tsRange * chartW; }
+    function yOf(pct) { return pad.top  + (1 - pct / 100) * chartH; }
+
+    // Grid lines at 0, 50, 100
+    ctx.strokeStyle = colorBorder;
+    ctx.lineWidth = 0.5;
+    [0, 50, 100].forEach(function(v) {
+        var y = yOf(v);
+        ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+        ctx.fillStyle = colorMuted;
+        ctx.font = '8px sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(v + '%', pad.left - 2, y + 3);
+    });
+
+    // Line
+    ctx.strokeStyle = colorAccent;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    history.forEach(function(pt, i) {
+        var x = xOf(pt.ts), y = yOf(pt.pct);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // Dots
+    ctx.fillStyle = colorAccent;
+    history.forEach(function(pt) {
+        ctx.beginPath();
+        ctx.arc(xOf(pt.ts), yOf(pt.pct), 2, 0, Math.PI * 2);
+        ctx.fill();
     });
 }
 </script>

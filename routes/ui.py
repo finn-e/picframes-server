@@ -11,7 +11,7 @@ from db import (
     get_device_playlist_id, get_global_setting,
     check_user_password, get_user_by_username, list_users,
     flags, ORIGINALS_DIR, IMAGES_DIR, LANDSCAPE_SUFFIX, PORTRAIT_SUFFIX,
-    SHARE_DIR,
+    SHARE_DIR, get_latest_battery,
 )
 from image import ensure_dithered_original
 
@@ -200,6 +200,10 @@ def index():
         for dev in config.get('devices', []) if dev.get('mac')
     }
 
+    # Battery: most recent reading per device
+    device_macs = [dev['mac'].lower() for dev in config.get('devices', []) if dev.get('mac')]
+    device_battery = get_latest_battery(device_macs)
+
     current_user = {
         'username': session.get('username', 'admin'),
         'is_admin': session.get('is_admin', True),
@@ -224,4 +228,5 @@ def index():
         default_playlist_id=default_pid,
         current_user=current_user,
         users=list_users() if current_user['is_admin'] else [],
+        device_battery=device_battery,
     )

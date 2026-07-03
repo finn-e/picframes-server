@@ -3,6 +3,7 @@ import json
 import logging
 import threading
 import sqlite3
+import time as _time
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,12 @@ def init_db():
         ('description',  "TEXT DEFAULT ''"),
     ]:
         _col(conn, 'enabled', col, defn)
+
+    # Battery history
+    c.execute("""CREATE TABLE IF NOT EXISTS battery_history (
+        mac TEXT NOT NULL, ts INTEGER NOT NULL, pct INTEGER NOT NULL)""")
+    c.execute("""CREATE INDEX IF NOT EXISTS idx_battery_mac_ts
+        ON battery_history (mac, ts)""")
 
     conn.commit()
 
@@ -700,6 +707,56 @@ def get_playlist_settings(playlist_id):
         'sync':           bool(pl.get('sync', True)),
         'sleep_interval': int(pl.get('sleep_interval', 900)),
     }
+
+
+# ---------------------------------------------------------------------------
+# Battery history
+# ---------------------------------------------------------------------------
+
+def record_battery(mac, pct):
+    try:
+        conn = get_db()
+        conn.execute("INSERT INTO battery_history (mac, ts, pct) VALUES (?,?,?)",
+                     (mac.lower(), int(_time.time()), int(pct)))
+        conn.commit(); conn.close()
+    except Exception as e:
+        logger.error(f"record_battery({mac}, {pct}): {e}")
+
+
+def get_battery_history(mac, since_ts=None):
+    try:
+        conn = get_db()
+        if since_ts is not None:
+            rows = conn.execute(
+                "SELECT ts, pct FROM battery_history WHERE mac=? AND ts>=? ORDER BY ts",
+                (mac.lower(), int(since_ts))).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT ts, pct FROM battery_history WHERE mac=? ORDER BY ts",
+                (mac.lower(),)).fetchall()
+        conn.close()
+        return [{"ts": r["ts"], "pct": r["pct"]} for r in rows]
+    except Exception as e:
+        logger.error(f"get_battery_history({mac}): {e}"); return []
+
+
+def get_latest_battery(macs):
+    """Return {mac: {pct, ts}} for the most recent reading per mac."""
+    result = {}
+    if not macs:
+        return result
+    try:
+        conn = get_db()
+        for mac in macs:
+            row = conn.execute(
+                "SELECT ts, pct FROM battery_history WHERE mac=? ORDER BY ts DESC LIMIT 1",
+                (mac.lower(),)).fetchone()
+            if row:
+                result[mac.lower()] = {"pct": row["pct"], "ts": row["ts"]}
+        conn.close()
+    except Exception as e:
+        logger.error(f"get_latest_battery: {e}")
+    return result
 
 
 def get_unified_index():
