@@ -90,9 +90,10 @@ def init_db():
         FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE SET NULL)""")
 
     for col, defn in [
-        ('shuffle',  'INTEGER DEFAULT 0'),
-        ('flip_l',   'INTEGER DEFAULT 0'),
-        ('flip_p',   'INTEGER DEFAULT 0'),
+        ('shuffle',    'INTEGER DEFAULT 0'),
+        ('flip_l',     'INTEGER DEFAULT 0'),
+        ('flip_p',     'INTEGER DEFAULT 0'),
+        ('hw_profile', "TEXT DEFAULT ''"),
     ]:
         _col(conn, 'devices', col, defn)
     for col, defn in [
@@ -454,7 +455,7 @@ def load_config():
         if row:
             defaults['wake_timeout'] = int(row['value'])
         rows = conn.execute(
-            "SELECT mac,name,orientation,debug,mode,shuffle,flip_l,flip_p,images_json FROM devices"
+            "SELECT mac,name,orientation,debug,mode,shuffle,flip_l,flip_p,images_json,hw_profile FROM devices"
         ).fetchall()
         defaults['devices'] = [{
             "mac": r['mac'].lower(), "name": r['name'],
@@ -462,6 +463,7 @@ def load_config():
             "mode": r['mode'], "shuffle": bool(r['shuffle']),
             "flip_l": bool(r['flip_l']), "flip_p": bool(r['flip_p']),
             "images": json.loads(r['images_json'] or '[]'),
+            "hw_profile": r['hw_profile'] or '',
         } for r in rows]
         conn.close()
     except Exception as e:
@@ -477,17 +479,30 @@ def save_config(cfg):
         conn.execute("DELETE FROM devices")
         for dev in cfg.get('devices', []):
             conn.execute("""INSERT OR REPLACE INTO devices
-                (mac,name,orientation,debug,mode,shuffle,flip_l,flip_p,images_json)
-                VALUES (?,?,?,?,?,?,?,?,?)""", (
+                (mac,name,orientation,debug,mode,shuffle,flip_l,flip_p,images_json,hw_profile)
+                VALUES (?,?,?,?,?,?,?,?,?,?)""", (
                 dev.get('mac','').lower(), dev.get('name',''),
                 dev.get('orientation','landscape'), 1 if dev.get('debug') else 0,
                 dev.get('mode','group'), 1 if dev.get('shuffle') else 0,
                 1 if dev.get('flip_l') else 0, 1 if dev.get('flip_p') else 0,
-                json.dumps(dev.get('images', []))))
+                json.dumps(dev.get('images', [])),
+                dev.get('hw_profile', '')))
         conn.commit(); conn.close()
         return True
     except Exception as e:
         logger.error(f"save_config: {e}"); return False
+
+
+def update_device_hw_profile(mac, hw_profile):
+    """Persist hw_profile for a device (upsert-safe, no full config reload)."""
+    mac = mac.lower()
+    try:
+        conn = get_db()
+        conn.execute(
+            "UPDATE devices SET hw_profile=? WHERE mac=?", (hw_profile, mac))
+        conn.commit(); conn.close()
+    except Exception as e:
+        logger.error(f"update_device_hw_profile({mac}): {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -670,17 +685,27 @@ def orient_suffix(orientation):
 
 
 def get_active_bases(orientation=None):
-    """Return bases enabled in the general pool."""
+    """Return bases enabled in the general pool.
+
+    Presence of the original file is the only hard requirement; converted
+    artifacts may not yet exist for all screen types.
+    """
     order   = load_image_order()
     enabled = load_enabled()
-    result  = []
+    # Build a set of bases that have an original file on disk
+    originals_on_disk = {
+        os.path.splitext(f)[0]
+        for f in os.listdir(ORIGINALS_DIR)
+        if os.path.splitext(f)[1].lower() in ALLOWED_EXTENSIONS
+    }
+    result = []
     for base in order:
+        if base not in originals_on_disk:
+            continue
         f = flags(enabled, base)
-        has_l = os.path.exists(os.path.join(IMAGES_DIR, landscape_file(base)))
-        has_p = os.path.exists(os.path.join(IMAGES_DIR, portrait_file(base)))
-        if orientation == 'landscape'  and has_l and f["l"]: result.append(base)
-        elif orientation == 'portrait' and has_p and f["p"]: result.append(base)
-        elif orientation is None and ((has_l and f["l"]) or (has_p and f["p"])): result.append(base)
+        if orientation == 'landscape'  and f["l"]: result.append(base)
+        elif orientation == 'portrait' and f["p"]: result.append(base)
+        elif orientation is None and (f["l"] or f["p"]): result.append(base)
     return result
 
 
@@ -689,10 +714,14 @@ def get_device_active_bases(mac, orientation):
     pid = get_device_playlist_id(mac)
     if pid is None:
         return get_active_bases(orientation)
+    # Playlist images are trusted; return all that have an original
     bases = get_playlist_images(pid)
-    orient_char = 'l' if orientation == 'landscape' else 'p'
-    return [b for b in bases
-            if os.path.exists(os.path.join(IMAGES_DIR, b + f'_{orient_char}.bmp'))]
+    originals_on_disk = {
+        os.path.splitext(f)[0]
+        for f in os.listdir(ORIGINALS_DIR)
+        if os.path.splitext(f)[1].lower() in ALLOWED_EXTENSIONS
+    }
+    return [b for b in bases if b in originals_on_disk]
 
 
 def get_playlist_settings(playlist_id):

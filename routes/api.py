@@ -19,8 +19,9 @@ from db import (
     get_device_playlist_id, get_playlist_settings, set_device_playlist,
     get_global_setting, trigger_redownload, state_lock, IMAGES_DIR,
     record_battery, get_battery_history,
+    update_device_hw_profile,
 )
-from image import ensure_bin_files
+from image import ensure_bin_files, ensure_bin_files_for_screen, screen_size_for_profile, _artifact_infix
 
 logger = logging.getLogger(__name__)
 
@@ -228,6 +229,12 @@ def api_update():
     hw      = request.args.get('hw', '').strip()
     version = request.args.get('version', '').strip()
     if not hw: return "Missing hw profile parameter", 400
+
+    # Persist hw_profile so screen-type is known for artifact selection
+    mac = _get_mac()
+    if mac:
+        update_device_hw_profile(mac, hw)
+
     url = _get_update_url(hw, version)
     return (url, 200) if url else ("", 204)
 
@@ -391,14 +398,20 @@ def _daily_zip_inner():
         save_state(state)
 
     orientation    = dev_cfg.get('orientation', 'portrait')
+    hw_profile     = dev_cfg.get('hw_profile', '')
     pid            = get_device_playlist_id(mac_lower)
     pl_settings    = get_playlist_settings(pid)
     active_bases   = get_device_active_bases(mac_lower, orientation)
 
     orient_char  = 'l' if orientation == 'landscape' else 'p'
     flip         = dev_cfg.get('flip_l', False) if orientation == 'landscape' else dev_cfg.get('flip_p', False)
-    store_suffix = f'_{orient_char}_{"f" if flip else "u"}.bin'
-    zip_suffix   = f'_{orient_char}.bin'
+    scr_w, scr_h = screen_size_for_profile(hw_profile)
+    infix        = _artifact_infix(scr_w, scr_h)
+    # Flip not supported for non-standard screens (would require proper rotation);
+    # fall through to unflipped for safety.
+    effective_flip = flip if not infix else False
+    store_suffix = f'{infix}_{orient_char}_{"f" if effective_flip else "u"}.bin'
+    zip_suffix   = f'_{orient_char}.bin'  # arcname inside zip is always _l.bin/_p.bin
 
     zip_version    = hashlib.md5((','.join(active_bases) + orientation).encode()).hexdigest()[:8]
     client_version = request.args.get('version', '').strip()
@@ -430,7 +443,7 @@ def _daily_zip_inner():
         zf.writestr('index.json', manifest)
         zf.writestr('list.json',  manifest)
         for base in candidates:
-            ensure_bin_files(base)
+            ensure_bin_files_for_screen(base, scr_w, scr_h)
             bin_path = os.path.join(IMAGES_DIR, base + store_suffix)
             if os.path.exists(bin_path):
                 zf.write(bin_path, arcname=base + zip_suffix)

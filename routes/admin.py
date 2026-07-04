@@ -15,7 +15,7 @@ from db import (
     trigger_redownload, flags, ORIGINALS_DIR, IMAGES_DIR, ALLOWED_EXTENSIONS,
     LANDSCAPE_SUFFIX, PORTRAIT_SUFFIX,
 )
-from image import convert_image
+from image import convert_image, ensure_artifacts_for_playlist
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +75,13 @@ def delete_file(filename):
         os.path.join(IMAGES_DIR, base + '_p_f.bin'),
         os.path.join(IMAGES_DIR, base + '_l.bin'),
         os.path.join(IMAGES_DIR, base + '_p.bin'),
+        # 13.3" artifacts
+        os.path.join(IMAGES_DIR, base + '_1600x1200_l.bmp'),
+        os.path.join(IMAGES_DIR, base + '_1600x1200_p.bmp'),
+        os.path.join(IMAGES_DIR, base + '_1600x1200_l_u.bin'),
+        os.path.join(IMAGES_DIR, base + '_1600x1200_l_f.bin'),
+        os.path.join(IMAGES_DIR, base + '_1600x1200_p_u.bin'),
+        os.path.join(IMAGES_DIR, base + '_1600x1200_p_f.bin'),
     ]:
         if os.path.exists(path): os.remove(path)
 
@@ -109,13 +116,20 @@ def rename_image():
             break
 
     for old_f, new_f in [
-        (old_base + LANDSCAPE_SUFFIX,  new_base + LANDSCAPE_SUFFIX),
-        (old_base + PORTRAIT_SUFFIX,   new_base + PORTRAIT_SUFFIX),
-        (old_base + '_l_u.bin',        new_base + '_l_u.bin'),
-        (old_base + '_l_f.bin',        new_base + '_l_f.bin'),
-        (old_base + '_p_u.bin',        new_base + '_p_u.bin'),
-        (old_base + '_p_f.bin',        new_base + '_p_f.bin'),
-        (old_base + '_dithered.png',   new_base + '_dithered.png'),
+        (old_base + LANDSCAPE_SUFFIX,          new_base + LANDSCAPE_SUFFIX),
+        (old_base + PORTRAIT_SUFFIX,           new_base + PORTRAIT_SUFFIX),
+        (old_base + '_l_u.bin',                new_base + '_l_u.bin'),
+        (old_base + '_l_f.bin',                new_base + '_l_f.bin'),
+        (old_base + '_p_u.bin',                new_base + '_p_u.bin'),
+        (old_base + '_p_f.bin',                new_base + '_p_f.bin'),
+        (old_base + '_dithered.png',           new_base + '_dithered.png'),
+        # 13.3" artifacts
+        (old_base + '_1600x1200_l.bmp',        new_base + '_1600x1200_l.bmp'),
+        (old_base + '_1600x1200_p.bmp',        new_base + '_1600x1200_p.bmp'),
+        (old_base + '_1600x1200_l_u.bin',      new_base + '_1600x1200_l_u.bin'),
+        (old_base + '_1600x1200_l_f.bin',      new_base + '_1600x1200_l_f.bin'),
+        (old_base + '_1600x1200_p_u.bin',      new_base + '_1600x1200_p_u.bin'),
+        (old_base + '_1600x1200_p_f.bin',      new_base + '_1600x1200_p_f.bin'),
     ]:
         old_p = os.path.join(IMAGES_DIR, old_f)
         new_p = os.path.join(IMAGES_DIR, new_f)
@@ -309,6 +323,9 @@ def device_playlist_assign():
     pid   = data.get('playlist_id')
     if not mac: return jsonify({'ok': False, 'error': 'mac required'}), 400
     set_device_playlist(mac, int(pid) if pid is not None else None)
+    # Trigger conversion for all screen types now present in this playlist
+    if pid is not None:
+        ensure_artifacts_for_playlist(int(pid))
     trigger_redownload(mac)
     return jsonify({'ok': True})
 
@@ -368,6 +385,8 @@ def playlist_add_image(pid):
         enabled = load_enabled()
         f = flags(enabled, base); f['l'] = False; f['p'] = False
         enabled[base] = f; save_enabled(enabled)
+    # Trigger conversion for all screen types present in this playlist
+    ensure_artifacts_for_playlist(pid)
     trigger_redownload()
     return jsonify({'ok': True})
 
