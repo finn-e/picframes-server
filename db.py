@@ -516,6 +516,19 @@ def save_config(cfg, owner_id=None):
         logger.error(f"save_config: {e}"); return False
 
 
+def get_device_owner_id(mac):
+    """Return the owner_id of an existing device row, or None if unknown."""
+    try:
+        conn = get_db()
+        row = conn.execute("SELECT owner_id FROM devices WHERE mac=?",
+                           (mac.lower(),)).fetchone()
+        conn.close()
+        return row['owner_id'] if row else None
+    except Exception as e:
+        logger.error(f"get_device_owner_id({mac}): {e}")
+        return None
+
+
 def update_device_hw_profile(mac, hw_profile):
     """Persist hw_profile for a device.  Returns True if the stored value changed."""
     mac = mac.lower()

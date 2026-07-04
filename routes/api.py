@@ -19,7 +19,7 @@ from db import (
     get_device_playlist_id, get_playlist_settings, set_device_playlist,
     get_global_setting, trigger_redownload, state_lock, IMAGES_DIR,
     record_battery, get_battery_history,
-    update_device_hw_profile,
+    update_device_hw_profile, get_device_owner_id,
 )
 from image import ensure_bin_files, ensure_bin_files_for_screen, screen_size_for_profile, _artifact_infix
 
@@ -37,6 +37,15 @@ def _caller_ip():
 def _get_mac():
     return (request.headers.get('X-Device-Mac', '') or
             request.args.get('mac', '') or '').strip().lower()
+
+
+def _load_device_config(mac):
+    """Load config scoped to the owner of an existing device, so device
+    check-ins don't re-register (and steal) devices owned by other users."""
+    owner_id = get_device_owner_id(mac) if mac else None
+    if owner_id is None:
+        owner_id = 1
+    return load_config(owner_id=owner_id), owner_id
 
 
 def _auto_register(mac, devices, cfg, source, owner_id=1):
@@ -111,13 +120,13 @@ def api_change_orientation():
     server_orient = 'portrait' if 'portrait' in orientation else 'landscape'
     if not mac or not orientation:
         return jsonify({'ok': False}), 400
-    cfg = load_config()
+    cfg, owner_id = _load_device_config(mac)
     for dev in cfg.get('devices', []):
         if dev['mac'].lower() == mac:
             dev['orientation'] = server_orient
             trigger_redownload(mac)
             break
-    save_config(cfg)
+    save_config(cfg, owner_id=owner_id)
     return jsonify({'ok': True, 'orientation': server_orient})
 
 
@@ -262,12 +271,12 @@ def api_update():
 # ---------------------------------------------------------------------------
 
 def _daily_config_inner():
-    cfg     = load_config()
     mac     = _get_mac()
+    cfg, owner_id = _load_device_config(mac)
     devices = cfg.get('devices', [])
     dev_cfg = next((d for d in devices if d['mac'].lower() == mac), None)
     if not dev_cfg and mac:
-        dev_cfg = _auto_register(mac, devices, cfg, '/daily-config')
+        dev_cfg = _auto_register(mac, devices, cfg, '/daily-config', owner_id=owner_id)
     if not dev_cfg:
         return jsonify({'error': 'unknown device'}), 403
 
@@ -310,11 +319,11 @@ def _refresh_inner():
     mac    = (data.get('mac', '') or _get_mac()).strip().lower()
     skip   = bool(data.get('skip', False))
 
-    cfg     = load_config()
+    cfg, owner_id = _load_device_config(mac)
     devices = cfg.get('devices', [])
     dev_cfg = next((d for d in devices if d['mac'].lower() == mac), None)
     if not dev_cfg and mac:
-        dev_cfg = _auto_register(mac, devices, cfg, '/refresh')
+        dev_cfg = _auto_register(mac, devices, cfg, '/refresh', owner_id=owner_id)
     if not dev_cfg:
         return jsonify({'error': 'unknown device'}), 403
 
@@ -400,14 +409,14 @@ def battery_history(mac):
 # ---------------------------------------------------------------------------
 
 def _daily_zip_inner():
-    cfg        = load_config()
     caller_ip  = _caller_ip()
-    devices    = cfg.get('devices', [])
     mac        = (_get_mac() or caller_ip).lower()
+    cfg, owner_id = _load_device_config(mac)
+    devices    = cfg.get('devices', [])
 
     dev_cfg = next((d for d in devices if d['mac'].lower() == mac), None)
     if not dev_cfg:
-        dev_cfg = _auto_register(mac, devices, cfg, '/daily-zip')
+        dev_cfg = _auto_register(mac, devices, cfg, '/daily-zip', owner_id=owner_id)
 
     mac_lower = dev_cfg.get('mac', mac).lower()
     with state_lock:
