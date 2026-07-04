@@ -39,6 +39,18 @@ def get_db():
     return conn
 
 
+def _get_owner_id(owner_id=None):
+    if owner_id is not None:
+        return owner_id
+    try:
+        from flask import has_request_context, session
+        if has_request_context():
+            return session.get('user_id', 1)
+    except Exception:
+        pass
+    return 1
+
+
 def _col(conn, table, col, definition):
     try:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {definition}")
@@ -102,6 +114,13 @@ def init_db():
         ('description',  "TEXT DEFAULT ''"),
     ]:
         _col(conn, 'enabled', col, defn)
+
+    for col, defn in [
+        ('owner_id', 'INTEGER DEFAULT 1'),
+    ]:
+        _col(conn, 'playlists', col, defn)
+        _col(conn, 'devices', col, defn)
+        _col(conn, 'image_order', col, defn)
 
     # Battery history
     c.execute("""CREATE TABLE IF NOT EXISTS battery_history (
@@ -300,10 +319,11 @@ def set_global_setting(key, value):
 # Playlists
 # ---------------------------------------------------------------------------
 
-def load_playlists():
+def load_playlists(owner_id=None):
+    owner_id = _get_owner_id(owner_id)
     try:
         conn = get_db()
-        rows = conn.execute("SELECT id,name,shuffle,sync,sleep_interval FROM playlists ORDER BY id").fetchall()
+        rows = conn.execute("SELECT id,name,shuffle,sync,sleep_interval FROM playlists WHERE owner_id=? ORDER BY id", (owner_id,)).fetchall()
         result = [dict(r) for r in rows]
         conn.close()
         return result
@@ -324,12 +344,13 @@ def load_playlist(playlist_id):
         logger.error(f"load_playlist({playlist_id}): {e}"); return None
 
 
-def create_playlist(name, shuffle=False, sync=True, sleep_interval=900):
+def create_playlist(name, shuffle=False, sync=True, sleep_interval=900, owner_id=None):
+    owner_id = _get_owner_id(owner_id)
     try:
         conn = get_db()
         c = conn.cursor()
-        c.execute("INSERT INTO playlists (name,shuffle,sync,sleep_interval) VALUES (?,?,?,?)",
-                  (name, 1 if shuffle else 0, 1 if sync else 0, int(sleep_interval)))
+        c.execute("INSERT INTO playlists (name,shuffle,sync,sleep_interval,owner_id) VALUES (?,?,?,?,?)",
+                  (name, 1 if shuffle else 0, 1 if sync else 0, int(sleep_interval), owner_id))
         pid = c.lastrowid; conn.commit(); conn.close()
         return pid
     except Exception as e:
@@ -447,7 +468,8 @@ def set_device_playlist(mac, playlist_id):
 # Config (devices)
 # ---------------------------------------------------------------------------
 
-def load_config():
+def load_config(owner_id=None):
+    owner_id = _get_owner_id(owner_id)
     defaults = {"wake_timeout": 45, "devices": []}
     try:
         conn = get_db()
@@ -455,7 +477,7 @@ def load_config():
         if row:
             defaults['wake_timeout'] = int(row['value'])
         rows = conn.execute(
-            "SELECT mac,name,orientation,debug,mode,shuffle,flip_l,flip_p,images_json,hw_profile FROM devices"
+            "SELECT mac,name,orientation,debug,mode,shuffle,flip_l,flip_p,images_json,hw_profile FROM devices WHERE owner_id=?", (owner_id,)
         ).fetchall()
         defaults['devices'] = [{
             "mac": r['mac'].lower(), "name": r['name'],
@@ -471,22 +493,23 @@ def load_config():
     return defaults
 
 
-def save_config(cfg):
+def save_config(cfg, owner_id=None):
+    owner_id = _get_owner_id(owner_id)
     try:
         conn = get_db()
         conn.execute("INSERT OR REPLACE INTO global_settings VALUES ('wake_timeout',?)",
                      (str(cfg.get('wake_timeout', 45)),))
-        conn.execute("DELETE FROM devices")
+        conn.execute("DELETE FROM devices WHERE owner_id=?", (owner_id,))
         for dev in cfg.get('devices', []):
             conn.execute("""INSERT OR REPLACE INTO devices
-                (mac,name,orientation,debug,mode,shuffle,flip_l,flip_p,images_json,hw_profile)
-                VALUES (?,?,?,?,?,?,?,?,?,?)""", (
+                (mac,name,orientation,debug,mode,shuffle,flip_l,flip_p,images_json,hw_profile,owner_id)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (
                 dev.get('mac','').lower(), dev.get('name',''),
                 dev.get('orientation','landscape'), 1 if dev.get('debug') else 0,
                 dev.get('mode','group'), 1 if dev.get('shuffle') else 0,
                 1 if dev.get('flip_l') else 0, 1 if dev.get('flip_p') else 0,
                 json.dumps(dev.get('images', [])),
-                dev.get('hw_profile', '')))
+                dev.get('hw_profile', ''), owner_id))
         conn.commit(); conn.close()
         return True
     except Exception as e:
@@ -606,12 +629,13 @@ def trigger_redownload(mac=None):
 # Image order
 # ---------------------------------------------------------------------------
 
-def load_image_order():
+def load_image_order(owner_id=None):
+    owner_id = _get_owner_id(owner_id)
     order = []; initialized = False
     try:
         conn = get_db()
         order = [r['base'] for r in conn.execute(
-            "SELECT base FROM image_order ORDER BY sort_order").fetchall()]
+            "SELECT base FROM image_order WHERE owner_id=? ORDER BY sort_order", (owner_id,)).fetchall()]
         row = conn.execute(
             "SELECT value FROM global_settings WHERE key='image_order_initialized'").fetchone()
         initialized = bool(row and row['value'] == '1')
@@ -620,9 +644,9 @@ def load_image_order():
                 os.path.splitext(f)[0] for f in os.listdir(ORIGINALS_DIR)
                 if os.path.splitext(f)[1].lower() in ALLOWED_EXTENSIONS
             ])
-            conn.execute("DELETE FROM image_order")
+            conn.execute("DELETE FROM image_order WHERE owner_id=?", (owner_id,))
             for idx, base in enumerate(order):
-                conn.execute("INSERT INTO image_order VALUES (?,?)", (base, idx))
+                conn.execute("INSERT INTO image_order (base, sort_order, owner_id) VALUES (?,?,?)", (base, idx, owner_id))
             conn.execute("INSERT OR REPLACE INTO global_settings VALUES ('image_order_initialized','1')")
             conn.commit()
         conn.close()
@@ -631,12 +655,13 @@ def load_image_order():
     return order
 
 
-def save_image_order(order):
+def save_image_order(order, owner_id=None):
+    owner_id = _get_owner_id(owner_id)
     try:
         conn = get_db()
-        conn.execute("DELETE FROM image_order")
+        conn.execute("DELETE FROM image_order WHERE owner_id=?", (owner_id,))
         for idx, base in enumerate(order):
-            conn.execute("INSERT INTO image_order VALUES (?,?)", (base, idx))
+            conn.execute("INSERT INTO image_order (base, sort_order, owner_id) VALUES (?,?,?)", (base, idx, owner_id))
         conn.execute("INSERT OR REPLACE INTO global_settings VALUES ('image_order_initialized','1')")
         conn.commit(); conn.close()
     except Exception as e:

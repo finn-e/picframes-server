@@ -39,14 +39,14 @@ def _get_mac():
             request.args.get('mac', '') or '').strip().lower()
 
 
-def _auto_register(mac, devices, cfg, source):
+def _auto_register(mac, devices, cfg, source, owner_id=1):
     """Create a minimal device record and auto-assign to default playlist."""
     dev_cfg = {'mac': mac, 'name': mac, 'orientation': 'landscape',
                'debug': False, 'mode': 'group', 'images': [],
                'shuffle': False, 'flip_l': False, 'flip_p': False}
     devices.append(dev_cfg)
     cfg['devices'] = devices
-    save_config(cfg)
+    save_config(cfg, owner_id=owner_id)
     # Assign to default playlist
     dpid = get_global_setting('default_playlist_id')
     if dpid:
@@ -71,18 +71,30 @@ def api_register():
     secret = current_app.secret_key
     device_token = hmac.new(secret.encode(), mac.encode(), hashlib.sha256).hexdigest()[:32]
 
-    admin_pw = current_app.config.get('ADMIN_PASSWORD', 'admin')
-    if password != admin_pw and password != device_token:
-        return jsonify({'error': 'invalid credentials'}), 403
+    from db import check_user_password, get_user_by_username
+    if password != device_token:
+        if username:
+            if not check_user_password(username, password):
+                return jsonify({'error': 'invalid credentials'}), 403
+        else:
+            admin_pw = current_app.config.get('ADMIN_PASSWORD', 'admin')
+            if password != admin_pw:
+                return jsonify({'error': 'invalid credentials'}), 403
 
-    cfg     = load_config()
+    owner_id = 1
+    if username:
+        user = get_user_by_username(username)
+        if user:
+            owner_id = user['id']
+
+    cfg     = load_config(owner_id=owner_id)
     devices = cfg.get('devices', [])
     dev_cfg = next((d for d in devices if d['mac'].lower() == mac), None)
     if not dev_cfg:
-        _auto_register(mac, devices, cfg, '/api/register')
+        _auto_register(mac, devices, cfg, '/api/register', owner_id=owner_id)
     elif username and dev_cfg.get('name') == mac:
         dev_cfg['name'] = username
-        save_config(cfg)
+        save_config(cfg, owner_id=owner_id)
 
     return jsonify({'token': device_token})
 
