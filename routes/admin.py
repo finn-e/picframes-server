@@ -15,7 +15,11 @@ from db import (
     trigger_redownload, flags, ORIGINALS_DIR, IMAGES_DIR, ALLOWED_EXTENSIONS,
     LANDSCAPE_SUFFIX, PORTRAIT_SUFFIX,
 )
-from image import convert_image, ensure_artifacts_for_playlist
+from image import (
+    convert_image, ensure_artifacts_for_playlist,
+    reconvert_all_intelligent, reconvert_for_playlist_screen,
+    delete_all_artifacts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,10 +55,25 @@ def convert_file(filename):
 
 @admin_bp.route('/convert_all', methods=['POST'])
 def convert_all():
-    for f in sorted(os.listdir(ORIGINALS_DIR)):
-        if os.path.splitext(f)[1].lower() in ALLOWED_EXTENSIONS:
-            convert_image(os.path.join(ORIGINALS_DIR, f), os.path.splitext(f)[0])
+    """Intelligent reconvert: delete all artifacts, then rebuild only for the
+    screen types required by each image's playlists.  Pool-only images end up
+    with no converted artifacts.  Crops are honoured."""
+    reconvert_all_intelligent()
+    trigger_redownload()
     return redirect(url_for('ui.index'))
+
+
+@admin_bp.route('/convert_for_playlist/<int:pid>/<filename>', methods=['POST'])
+def convert_file_for_playlist(pid, filename):
+    """Per-image reconvert scoped to a playlist's screen types.
+    Deletes only the screen-type-specific artifacts then reconverts from original."""
+    base = os.path.splitext(filename)[0]
+    if not os.path.exists(os.path.join(ORIGINALS_DIR, filename)):
+        return "File not found", 404
+    if reconvert_for_playlist_screen(base, pid):
+        trigger_redownload()
+        return redirect(url_for('ui.index'))
+    return "Conversion failed", 500
 
 
 # ---------------------------------------------------------------------------
@@ -64,26 +83,11 @@ def convert_all():
 @admin_bp.route('/delete/<filename>', methods=['POST'])
 def delete_file(filename):
     base, _ = os.path.splitext(filename)
-    for path in [
-        os.path.join(ORIGINALS_DIR, filename),
-        os.path.join(IMAGES_DIR, base + LANDSCAPE_SUFFIX),
-        os.path.join(IMAGES_DIR, base + PORTRAIT_SUFFIX),
-        os.path.join(IMAGES_DIR, base + '_dithered.png'),
-        os.path.join(IMAGES_DIR, base + '_l_u.bin'),
-        os.path.join(IMAGES_DIR, base + '_l_f.bin'),
-        os.path.join(IMAGES_DIR, base + '_p_u.bin'),
-        os.path.join(IMAGES_DIR, base + '_p_f.bin'),
-        os.path.join(IMAGES_DIR, base + '_l.bin'),
-        os.path.join(IMAGES_DIR, base + '_p.bin'),
-        # 13.3" artifacts
-        os.path.join(IMAGES_DIR, base + '_1600x1200_l.bmp'),
-        os.path.join(IMAGES_DIR, base + '_1600x1200_p.bmp'),
-        os.path.join(IMAGES_DIR, base + '_1600x1200_l_u.bin'),
-        os.path.join(IMAGES_DIR, base + '_1600x1200_l_f.bin'),
-        os.path.join(IMAGES_DIR, base + '_1600x1200_p_u.bin'),
-        os.path.join(IMAGES_DIR, base + '_1600x1200_p_f.bin'),
-    ]:
-        if os.path.exists(path): os.remove(path)
+    # Remove all converted artifacts via centralised helper, then the original
+    delete_all_artifacts(base)
+    orig_path = os.path.join(ORIGINALS_DIR, filename)
+    if os.path.exists(orig_path):
+        os.remove(orig_path)
 
     order = load_image_order()
     if base in order: order.remove(base); save_image_order(order)
@@ -233,7 +237,12 @@ def recrop():
     if not original_name:
         return jsonify({'ok': False, 'error': 'Original not found'}), 404
 
-    if convert_image(os.path.join(ORIGINALS_DIR, original_name), base):
+    from image import convert_image_for_screen, get_screen_types_for_image, _DEFAULT_SCREEN
+    src = os.path.join(ORIGINALS_DIR, original_name)
+    # Always reconvert 800×480 (used for pool previews / dithered thumbnail)
+    sizes = get_screen_types_for_image(base) or {_DEFAULT_SCREEN}
+    ok = all(convert_image_for_screen(src, base, w, h) for w, h in sizes)
+    if ok:
         trigger_redownload()
         return jsonify({'ok': True})
     return jsonify({'ok': False, 'error': 'Re-conversion failed'}), 500

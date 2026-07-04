@@ -411,18 +411,7 @@
                 <span class="img-row-chevron">▶</span>
                 <span class="img-row-name" onclick="event.stopPropagation(); startRename(this, '{{ img.base }}')">{{ img.base.replace('_', ' ') }}</span>
                 <div class="img-row-actions" onclick="event.stopPropagation()">
-                    <button class="btn-toggle-lp {% if img.l_on %}on-l{% endif %}"
-                            onclick="toggleOrient('{{ img.base }}', 'l', !{{ 'true' if img.l_on else 'false' }}, this)"
-                            title="Landscape {% if img.l_on %}ON{% else %}OFF{% endif %}">L</button>
-                    <button class="btn-toggle-lp {% if img.p_on %}on-p{% endif %}"
-                            onclick="toggleOrient('{{ img.base }}', 'p', !{{ 'true' if img.p_on else 'false' }}, this)"
-                            title="Portrait {% if img.p_on %}ON{% else %}OFF{% endif %}">P</button>
-                    <button class="btn-queue-sm {% if is_queued %}active{% endif %}"
-                            onclick="queueImage('{{ img.base }}', this)"
-                            title="Queue Push">⚡</button>
-                    <form action="{{ url_for('admin.convert_file', filename=img.original_name) }}" method="POST" style="display:inline;">
-                        <button type="submit" class="btn-queue-sm" title="Reconvert asset" onclick="event.stopPropagation()">↻</button>
-                    </form>
+                    <button class="btn-queue-sm" disabled title="Share (coming soon)" style="opacity:0.4; cursor:not-allowed;">Share</button>
                     <form action="{{ url_for('admin.delete_file', filename=img.original_name) }}" method="POST" style="display:inline;" onsubmit="return confirm('Delete this asset?');">
                         <button type="submit" class="btn-queue-sm" style="color:var(--danger);" title="Remove asset" onclick="event.stopPropagation()">🗑</button>
                     </form>
@@ -464,9 +453,7 @@
                     </div>
                 </div>
                 <div class="drawer-actions">
-                    <form action="{{ url_for('admin.convert_file', filename=img.original_name) }}" method="POST">
-                        <button type="submit" class="btn btn-ghost btn-sm">↻ Reconvert</button>
-                    </form>
+                    <button class="btn btn-ghost btn-sm" disabled style="opacity:0.4; cursor:not-allowed;">Share</button>
                     <form action="{{ url_for('admin.delete_file', filename=img.original_name) }}" method="POST" onsubmit="return confirm('Delete this asset?');">
                         <button type="submit" class="btn btn-danger btn-sm">🗑 Remove</button>
                     </form>
@@ -565,7 +552,7 @@
                     </div>
                 </div>
                 <div class="drawer-actions">
-                    <form action="{{ url_for('admin.convert_file', filename=img.original_name) }}" method="POST">
+                    <form action="{{ url_for('admin.convert_file_for_playlist', pid=pl.id, filename=img.original_name) }}" method="POST">
                         <button type="submit" class="btn btn-ghost btn-sm">↻ Reconvert</button>
                     </form>
                 </div>

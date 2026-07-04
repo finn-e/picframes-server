@@ -154,6 +154,92 @@ def _flip_bitstream_13in3(data):
 
 
 # ---------------------------------------------------------------------------
+# Artifact path helpers
+# ---------------------------------------------------------------------------
+
+def artifact_suffixes_for_screen(w, h):
+    """Return list of suffixes (relative to base) for all artifacts of one screen size."""
+    infix = _artifact_infix(w, h)
+    return [
+        infix + '_l.bmp',
+        infix + '_p.bmp',
+        infix + '_l_u.bin',
+        infix + '_l_f.bin',
+        infix + '_p_u.bin',
+        infix + '_p_f.bin',
+    ]
+
+
+def artifact_suffixes_all():
+    """All artifact suffixes across every known screen size, plus legacy names."""
+    suffixes = set()
+    for size in set(SCREEN_TYPES.values()):
+        suffixes.update(artifact_suffixes_for_screen(*size))
+    # legacy bare bin names and dithered preview
+    suffixes.update(['_l.bin', '_p.bin', '_dithered.png'])
+    return list(suffixes)
+
+
+def delete_artifacts_for_screen(base, w, h):
+    """Delete BMP and bin artifacts for one screen size; leave originals intact."""
+    for sfx in artifact_suffixes_for_screen(w, h):
+        p = os.path.join(IMAGES_DIR, base + sfx)
+        if os.path.exists(p):
+            try:
+                os.remove(p)
+            except OSError as e:
+                logger.warning(f"delete_artifacts_for_screen: {p}: {e}")
+
+
+def delete_all_artifacts(base):
+    """Delete every converted artifact for *base* across all known screen sizes."""
+    for sfx in artifact_suffixes_all():
+        p = os.path.join(IMAGES_DIR, base + sfx)
+        if os.path.exists(p):
+            try:
+                os.remove(p)
+            except OSError as e:
+                logger.warning(f"delete_all_artifacts: {p}: {e}")
+
+
+def get_screen_types_for_playlist(playlist_id):
+    """
+    Return set of (w, h) tuples for the screen sizes needed by a playlist's devices.
+    If no devices have a known hw_profile, returns {_DEFAULT_SCREEN} as a safe fallback.
+    """
+    try:
+        from db import get_playlist_devices, load_config
+        dev_macs = get_playlist_devices(playlist_id)
+        cfg = load_config()
+        sizes = set()
+        for mac in dev_macs:
+            dev = next((d for d in cfg.get('devices', []) if d['mac'].lower() == mac.lower()), None)
+            if dev and dev.get('hw_profile'):
+                sizes.add(screen_size_for_profile(dev['hw_profile']))
+        return sizes if sizes else {_DEFAULT_SCREEN}
+    except Exception as e:
+        logger.error(f"get_screen_types_for_playlist({playlist_id}): {e}")
+        return {_DEFAULT_SCREEN}
+
+
+def get_screen_types_for_image(base):
+    """
+    Return union of screen sizes needed across all playlists that contain *base*.
+    Returns empty set if the image is not in any playlist.
+    """
+    try:
+        from db import get_playlists_for_image
+        pids = get_playlists_for_image(base)
+        sizes = set()
+        for pid in pids:
+            sizes.update(get_screen_types_for_playlist(pid))
+        return sizes
+    except Exception as e:
+        logger.error(f"get_screen_types_for_image({base}): {e}")
+        return set()
+
+
+# ---------------------------------------------------------------------------
 # Bin file helpers
 # ---------------------------------------------------------------------------
 
@@ -367,20 +453,52 @@ def ensure_artifacts_for_playlist(playlist_id):
     Called as a best-effort background trigger; errors are logged only.
     """
     try:
-        from db import get_playlist_images, get_playlist_devices, load_config
-        images  = get_playlist_images(playlist_id)
-        dev_macs = get_playlist_devices(playlist_id)
-        cfg = load_config()
-        hw_profiles = set()
-        for mac in dev_macs:
-            dev = next((d for d in cfg.get('devices', []) if d['mac'].lower() == mac.lower()), None)
-            if dev and dev.get('hw_profile'):
-                hw_profiles.add(dev['hw_profile'])
-        # Always ensure 800×480 artifacts exist (used as proxy for general pool checks)
-        hw_profiles.add('ESP32-S3-PhotoPainter')
-        for hw in hw_profiles:
-            w, h = screen_size_for_profile(hw)
+        from db import get_playlist_images
+        images = get_playlist_images(playlist_id)
+        sizes  = get_screen_types_for_playlist(playlist_id)
+        for w, h in sizes:
             for base in images:
                 ensure_converted_for_screen(base, w, h)
     except Exception as e:
         logger.error(f"ensure_artifacts_for_playlist({playlist_id}): {e}")
+
+
+def reconvert_all_intelligent():
+    """
+    For every image in ORIGINALS_DIR:
+      - Delete all existing converted artifacts.
+      - Reconvert only for the screen sizes required by the playlists it belongs to.
+      - Images in no playlist are left as originals only (no artifacts).
+    Crops are honoured because convert_image_for_screen reads load_crops().
+    """
+    from db import get_playlists_for_image
+    for f in sorted(os.listdir(ORIGINALS_DIR)):
+        ext = os.path.splitext(f)[1].lower()
+        from db import ALLOWED_EXTENSIONS
+        if ext not in ALLOWED_EXTENSIONS:
+            continue
+        base = os.path.splitext(f)[0]
+        src  = os.path.join(ORIGINALS_DIR, f)
+        delete_all_artifacts(base)
+        sizes = get_screen_types_for_image(base)
+        for w, h in sizes:
+            convert_image_for_screen(src, base, w, h)
+
+
+def reconvert_for_playlist_screen(base, playlist_id):
+    """
+    Delete artifacts for the screen types used by *playlist_id*, then reconvert
+    *base* from scratch for those sizes.  Other playlists' screen types are left
+    untouched.  Crops are honoured.
+    """
+    src = _find_original(base)
+    if not src:
+        logger.warning(f"reconvert_for_playlist_screen: no original for {base}")
+        return False
+    sizes = get_screen_types_for_playlist(playlist_id)
+    ok = True
+    for w, h in sizes:
+        delete_artifacts_for_screen(base, w, h)
+        if not convert_image_for_screen(src, base, w, h):
+            ok = False
+    return ok

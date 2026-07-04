@@ -230,10 +230,16 @@ def api_update():
     version = request.args.get('version', '').strip()
     if not hw: return "Missing hw profile parameter", 400
 
-    # Persist hw_profile so screen-type is known for artifact selection
+    # Persist hw_profile so screen-type is known for artifact selection;
+    # if it changed, trigger artifact conversion for this device's playlist.
     mac = _get_mac()
     if mac:
-        update_device_hw_profile(mac, hw)
+        changed = update_device_hw_profile(mac, hw)
+        if changed:
+            pid = get_device_playlist_id(mac)
+            if pid is not None:
+                from image import ensure_artifacts_for_playlist
+                ensure_artifacts_for_playlist(pid)
 
     url = _get_update_url(hw, version)
     return (url, 200) if url else ("", 204)

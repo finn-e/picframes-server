@@ -494,15 +494,34 @@ def save_config(cfg):
 
 
 def update_device_hw_profile(mac, hw_profile):
-    """Persist hw_profile for a device (upsert-safe, no full config reload)."""
+    """Persist hw_profile for a device.  Returns True if the stored value changed."""
     mac = mac.lower()
     try:
         conn = get_db()
-        conn.execute(
-            "UPDATE devices SET hw_profile=? WHERE mac=?", (hw_profile, mac))
-        conn.commit(); conn.close()
+        row = conn.execute("SELECT hw_profile FROM devices WHERE mac=?", (mac,)).fetchone()
+        old = row['hw_profile'] if row else None
+        changed = (old != hw_profile)
+        if changed:
+            conn.execute("UPDATE devices SET hw_profile=? WHERE mac=?", (hw_profile, mac))
+            conn.commit()
+        conn.close()
+        return changed
     except Exception as e:
         logger.error(f"update_device_hw_profile({mac}): {e}")
+        return False
+
+
+def get_playlists_for_image(base):
+    """Return list of playlist_ids that contain this image base."""
+    try:
+        conn = get_db()
+        rows = conn.execute(
+            "SELECT DISTINCT playlist_id FROM playlist_images WHERE base=?", (base,)
+        ).fetchall()
+        conn.close()
+        return [r['playlist_id'] for r in rows]
+    except Exception as e:
+        logger.error(f"get_playlists_for_image({base}): {e}"); return []
 
 
 # ---------------------------------------------------------------------------
