@@ -39,17 +39,37 @@ def _get_mac():
             request.args.get('mac', '') or '').strip().lower()
 
 
-def _load_device_config(mac):
-    """Load config scoped to the owner of an existing device, so device
-    check-ins don't re-register (and steal) devices owned by other users."""
-    owner_id = get_device_owner_id(mac) if mac else None
+def _device_token_for(mac):
+    secret = current_app.secret_key
+    return hmac.new(secret.encode(), mac.encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def _require_device(source):
+    """Authenticate a device call: X-Device-Mac + X-Device-Token headers,
+    where the token is the one issued by /api/register, and the device must
+    already be registered. Returns (dev_cfg, cfg, owner_id, error_response)."""
+    mac   = _get_mac()
+    token = (request.headers.get('X-Device-Token', '') or '').strip()
+    if not mac:
+        return None, None, None, (jsonify({'error': 'mac required'}), 400)
+    if not token or not hmac.compare_digest(token, _device_token_for(mac)):
+        logger.warning(f"{source}: invalid device token for {mac}")
+        return None, None, None, (jsonify({'error': 'invalid token'}), 403)
+    owner_id = get_device_owner_id(mac)
     if owner_id is None:
-        owner_id = 1
-    return load_config(owner_id=owner_id), owner_id
+        logger.warning(f"{source}: unregistered device {mac}")
+        return None, None, None, (jsonify({'error': 'not registered'}), 403)
+    cfg = load_config(owner_id=owner_id)
+    dev_cfg = next((d for d in cfg.get('devices', [])
+                    if d['mac'].lower() == mac), None)
+    if not dev_cfg:
+        return None, None, None, (jsonify({'error': 'not registered'}), 403)
+    return dev_cfg, cfg, owner_id, None
 
 
-def _auto_register(mac, devices, cfg, source, owner_id=1):
-    """Create a minimal device record and auto-assign to default playlist."""
+def _auto_register(mac, devices, cfg, source, owner_id):
+    """Create a minimal device record and auto-assign to default playlist.
+    Only called from /api/register after user credentials are verified."""
     dev_cfg = {'mac': mac, 'name': mac, 'orientation': 'landscape',
                'debug': False, 'mode': 'group', 'images': [],
                'shuffle': False, 'flip_l': False, 'flip_p': False}
@@ -82,19 +102,20 @@ def api_register():
 
     from db import check_user_password, get_user_by_username
     if password != device_token:
-        if username:
-            if not check_user_password(username, password):
-                return jsonify({'error': 'invalid credentials'}), 403
-        else:
-            admin_pw = current_app.config.get('ADMIN_PASSWORD', 'admin')
-            if password != admin_pw:
-                return jsonify({'error': 'invalid credentials'}), 403
+        # Fresh registration requires the credentials of a real user account.
+        if not username or not check_user_password(username, password):
+            return jsonify({'error': 'invalid credentials'}), 403
 
-    owner_id = 1
+    owner_id = None
     if username:
         user = get_user_by_username(username)
         if user:
             owner_id = user['id']
+    if owner_id is None:
+        # Token-authenticated re-registration keeps the existing owner.
+        owner_id = get_device_owner_id(mac)
+    if owner_id is None:
+        return jsonify({'error': 'unknown user'}), 403
 
     cfg     = load_config(owner_id=owner_id)
     devices = cfg.get('devices', [])
@@ -114,18 +135,16 @@ def api_register():
 
 @api_bp.route('/api/change-orientation', methods=['POST'])
 def api_change_orientation():
-    mac  = _get_mac()
     data = request.get_json() or {}
     orientation = data.get('orientation', '').strip()
     server_orient = 'portrait' if 'portrait' in orientation else 'landscape'
-    if not mac or not orientation:
+    if not orientation:
         return jsonify({'ok': False}), 400
-    cfg, owner_id = _load_device_config(mac)
-    for dev in cfg.get('devices', []):
-        if dev['mac'].lower() == mac:
-            dev['orientation'] = server_orient
-            trigger_redownload(mac)
-            break
+    dev_cfg, cfg, owner_id, err = _require_device('/change-orientation')
+    if err:
+        return err
+    dev_cfg['orientation'] = server_orient
+    trigger_redownload(dev_cfg['mac'].lower())
     save_config(cfg, owner_id=owner_id)
     return jsonify({'ok': True, 'orientation': server_orient})
 
@@ -271,14 +290,10 @@ def api_update():
 # ---------------------------------------------------------------------------
 
 def _daily_config_inner():
-    mac     = _get_mac()
-    cfg, owner_id = _load_device_config(mac)
-    devices = cfg.get('devices', [])
-    dev_cfg = next((d for d in devices if d['mac'].lower() == mac), None)
-    if not dev_cfg and mac:
-        dev_cfg = _auto_register(mac, devices, cfg, '/daily-config', owner_id=owner_id)
-    if not dev_cfg:
-        return jsonify({'error': 'unknown device'}), 403
+    dev_cfg, cfg, owner_id, err = _require_device('/daily-config')
+    if err:
+        return err
+    mac = dev_cfg['mac'].lower()
 
     orientation  = dev_cfg.get('orientation', 'landscape')
     pid          = get_device_playlist_id(mac)
@@ -316,16 +331,12 @@ def device_daily_config():
 
 def _refresh_inner():
     data   = request.get_json() or {}
-    mac    = (data.get('mac', '') or _get_mac()).strip().lower()
     skip   = bool(data.get('skip', False))
 
-    cfg, owner_id = _load_device_config(mac)
-    devices = cfg.get('devices', [])
-    dev_cfg = next((d for d in devices if d['mac'].lower() == mac), None)
-    if not dev_cfg and mac:
-        dev_cfg = _auto_register(mac, devices, cfg, '/refresh', owner_id=owner_id)
-    if not dev_cfg:
-        return jsonify({'error': 'unknown device'}), 403
+    dev_cfg, cfg, owner_id, err = _require_device('/refresh')
+    if err:
+        return err
+    mac = dev_cfg['mac'].lower()
 
     # Record battery level if provided
     battery = data.get('battery')
@@ -410,15 +421,12 @@ def battery_history(mac):
 
 def _daily_zip_inner():
     caller_ip  = _caller_ip()
-    mac        = (_get_mac() or caller_ip).lower()
-    cfg, owner_id = _load_device_config(mac)
-    devices    = cfg.get('devices', [])
+    dev_cfg, cfg, owner_id, err = _require_device('/daily-zip')
+    if err:
+        return err
+    mac = dev_cfg['mac'].lower()
 
-    dev_cfg = next((d for d in devices if d['mac'].lower() == mac), None)
-    if not dev_cfg:
-        dev_cfg = _auto_register(mac, devices, cfg, '/daily-zip', owner_id=owner_id)
-
-    mac_lower = dev_cfg.get('mac', mac).lower()
+    mac_lower = mac
     with state_lock:
         state = load_state()
         state.setdefault('redownload', {})[mac_lower] = False
