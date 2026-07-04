@@ -1,5 +1,6 @@
 import logging
 import os
+import threading
 
 from flask import Blueprint, jsonify, redirect, request, session, url_for
 
@@ -30,8 +31,17 @@ admin_bp = Blueprint('admin', __name__)
 # Upload / convert
 # ---------------------------------------------------------------------------
 
+def _convert_in_background(saved):
+    for original_path, base in saved:
+        try:
+            convert_image(original_path, base)
+        except Exception as e:
+            logger.error(f"background convert_image({base}): {e}")
+
+
 @admin_bp.route('/upload', methods=['POST'])
 def upload_file():
+    saved = []
     for file in request.files.getlist('files'):
         if not file.filename: continue
         _, ext = os.path.splitext(file.filename)
@@ -39,7 +49,20 @@ def upload_file():
         original_path = os.path.join(ORIGINALS_DIR, file.filename)
         file.save(original_path)
         base, _ = os.path.splitext(file.filename)
-        convert_image(original_path, base)
+        saved.append((original_path, base))
+
+    if saved:
+        # Assign to the uploading user's pool now (session is only available
+        # here), then convert in the background so the response returns before
+        # any proxy/worker timeout.
+        order = load_image_order()
+        changed = False
+        for _, base in saved:
+            if base not in order:
+                order.append(base); changed = True
+        if changed:
+            save_image_order(order)
+        threading.Thread(target=_convert_in_background, args=(saved,), daemon=True).start()
     return redirect(url_for('ui.index'))
 
 

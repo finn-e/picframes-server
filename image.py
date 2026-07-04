@@ -353,10 +353,10 @@ def convert_image(src_path, base):
             p = os.path.join(IMAGES_DIR, base + sfx)
             if os.path.exists(p): os.remove(p)
 
-        order = load_image_order()
-        if base not in order:
-            order.append(base); save_image_order(order)
-
+        # NOTE: pool membership (image_order) is deliberately NOT touched here.
+        # convert_image runs from device API calls and background threads where
+        # there is no session, so appending here would assign the image to the
+        # default owner. The /upload route assigns ownership explicitly.
         ensure_bin_files(base)
         return True
     except Exception as e:

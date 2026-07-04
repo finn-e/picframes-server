@@ -9,7 +9,7 @@ from db import (
     load_config, load_state, load_image_order, load_enabled, load_crops,
     load_playlists, get_playlist_images, get_playlist_devices,
     get_device_playlist_id, get_global_setting,
-    check_user_password, get_user_by_username, list_users,
+    check_user_password, get_user_by_username, list_users, get_user_stats,
     flags, ORIGINALS_DIR, IMAGES_DIR, LANDSCAPE_SUFFIX, PORTRAIT_SUFFIX,
     SHARE_DIR, get_latest_battery,
 )
@@ -228,5 +228,6 @@ def index():
         default_playlist_id=default_pid,
         current_user=current_user,
         users=list_users() if current_user['is_admin'] else [],
+        user_stats=get_user_stats() if current_user['is_admin'] else {},
         device_battery=device_battery,
     )

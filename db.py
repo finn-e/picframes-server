@@ -257,6 +257,24 @@ def check_user_password(username, password):
     return check_password_hash(user['password_hash'], password)
 
 
+def get_user_stats():
+    """Per-user counts of images, playlists and devices, keyed by user id."""
+    stats = {}
+    try:
+        conn = get_db()
+        for table, key in (('image_order', 'images'),
+                           ('playlists', 'playlists'),
+                           ('devices', 'devices')):
+            for r in conn.execute(
+                    f"SELECT owner_id, COUNT(*) AS n FROM {table} GROUP BY owner_id"):
+                stats.setdefault(r['owner_id'],
+                                 {'images': 0, 'playlists': 0, 'devices': 0})[key] = r['n']
+        conn.close()
+    except Exception as e:
+        logger.error(f"get_user_stats: {e}")
+    return stats
+
+
 def list_users():
     try:
         conn = get_db()

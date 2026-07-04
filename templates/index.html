@@ -616,10 +616,11 @@
                     {{ user.username }}
                     {% if user.is_admin %}<span class="badge badge-admin">Admin</span>{% endif %}
                 </div>
+                {% set st = user_stats.get(user.id, {'images': 0, 'playlists': 0, 'devices': 0}) %}
                 <div class="user-mgmt-stats">
-                    <span>🖼 {{ images|length }} images</span>
-                    <span>🎞 {{ playlists|length }} playlists</span>
-                    <span>📡 {{ config.devices|length }} devices</span>
+                    <span>🖼 {{ st.images }} images</span>
+                    <span>🎞 {{ st.playlists }} playlists</span>
+                    <span>📡 {{ st.devices }} devices</span>
                 </div>
             </div>
             {% if user.id != current_user.user_id %}
@@ -689,7 +690,13 @@ function handleUpload(files) {
     xhr.upload.addEventListener('progress', e => {
         if(e.lengthComputable) document.getElementById('progress-bar').style.width = Math.round(e.loaded/e.total*100) + '%';
     });
-    xhr.onload = () => window.location.reload();
+    const finish = () => window.location.reload();
+    xhr.onload = finish;
+    xhr.onerror = () => {
+        document.getElementById('progress-label').textContent = 'Upload failed — retrying page…';
+        setTimeout(finish, 1500);
+    };
+    xhr.ontimeout = xhr.onerror;
     xhr.send(fd);
 }
 
