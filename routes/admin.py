@@ -388,6 +388,9 @@ def playlist_add_image(pid):
     data = request.get_json() or {}
     base = data.get('base', '').strip()
     if not base: return jsonify({'ok': False, 'error': 'Missing base'}), 400
+    images = get_playlist_images(pid)
+    if len(images) >= 10:
+        return jsonify({'ok': False, 'error': 'Playlist is full (maximum 10 images)'}), 400
     add_playlist_image(pid, base)
     # Optionally disable in general pool
     if data.get('disable_in_pool', True):

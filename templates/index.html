@@ -965,7 +965,7 @@ function poolTabDrop(event, poolId) {
     const pid = parseInt(poolId.replace('playlist-', ''));
     if(isNaN(pid)) return;
     fetch(`/playlists/${pid}/add_image`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({base, disable_in_pool:true})})
-        .then(r=>r.json()).then(d => { if(d.ok){ toast('Added to playlist'); window.location.reload(); } else toast('Error'); });
+        .then(r=>r.json()).then(d => { if(d.ok){ toast('Added to playlist'); window.location.reload(); } else toast(d.error || 'Error'); });
 }
 
 // Playlist card drop targets
@@ -977,7 +977,7 @@ function plDrop(event, pid) {
     const base = event.dataTransfer.getData('text/plain') || dragBase;
     if(!base) return;
     fetch(`/playlists/${pid}/add_image`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({base, disable_in_pool:true})})
-        .then(r=>r.json()).then(d => { if(d.ok){ toast('Added to playlist'); window.location.reload(); } else toast('Error'); });
+        .then(r=>r.json()).then(d => { if(d.ok){ toast('Added to playlist'); window.location.reload(); } else toast(d.error || 'Error'); });
 }
 
 // ---- Collapsible drawers ----
