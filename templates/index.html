@@ -411,6 +411,10 @@
                 <span class="img-row-chevron">▶</span>
                 <span class="img-row-name" onclick="event.stopPropagation(); startRename(this, '{{ img.base }}')">{{ img.base.replace('_', ' ') }}</span>
                 <div class="img-row-actions" onclick="event.stopPropagation()">
+                    <button class="btn-queue-sm {% if is_queued %}active{% endif %}"
+                            data-queue-base="{{ img.base }}"
+                            onclick="queueImage('{{ img.base }}', this)"
+                            title="Queue Push">⚡</button>
                     <button class="btn-queue-sm" disabled title="Share (coming soon)" style="opacity:0.4; cursor:not-allowed;">Share</button>
                     <form action="{{ url_for('admin.delete_file', filename=img.original_name) }}" method="POST" style="display:inline;" onsubmit="return confirm('Delete this asset?');">
                         <button type="submit" class="btn-queue-sm" style="color:var(--danger);" title="Remove asset" onclick="event.stopPropagation()">🗑</button>
@@ -510,6 +514,7 @@
                             onclick="toggleOrient('{{ img.base }}', 'p', !{{ 'true' if img.p_on else 'false' }}, this)"
                             title="Portrait {% if img.p_on %}ON{% else %}OFF{% endif %}">P</button>
                     <button class="btn-queue-sm {% if is_queued %}active{% endif %}"
+                            data-queue-base="{{ img.base }}"
                             onclick="queueImage('{{ img.base }}', this)"
                             title="Queue Push">⚡</button>
                     <button class="btn-queue-sm" style="color:var(--danger);"
@@ -807,7 +812,12 @@ function toggleOrient(base, orient, enabled, btn) {
 function queueImage(base, btn) {
     fetch('/api/queue', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({base, source:'general'})})
         .then(r=>r.json()).then(d => {
-            if(d.ok) { toast(d.action === 'queued' ? '⚡ Queued next' : 'Cleared queue'); if(btn) btn.classList.toggle('active', d.action === 'queued'); }
+            if(d.ok) {
+                toast(d.action === 'queued' ? '⚡ Queued next' : 'Cleared queue');
+                // Radio behavior: clear all queue buttons, then activate the clicked one.
+                document.querySelectorAll('[data-queue-base]').forEach(b => b.classList.remove('active'));
+                if(btn && d.action === 'queued') btn.classList.add('active');
+            }
         });
 }
 

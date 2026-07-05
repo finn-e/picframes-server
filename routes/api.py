@@ -330,6 +330,26 @@ def device_daily_config():
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _queued_idx_for(queued, mac, pool):
+    """Return the index the queued image occupies in this device's candidate list,
+    matching the ordering _daily_zip_inner produces: in-pool → pool.index(base),
+    out-of-pool → len(pool) (appended by daily-zip). Returns None if the queue
+    does not apply to this device."""
+    if not queued:
+        return None
+    src = queued.get('source', '')
+    if src != 'general' and src.lower() != mac:
+        return None
+    base = queued.get('base')
+    if not base:
+        return None
+    return pool.index(base) if base in pool else len(pool)
+
+
+# ---------------------------------------------------------------------------
 # Refresh  (device calls to get next image index)
 # ---------------------------------------------------------------------------
 
@@ -391,6 +411,22 @@ def _refresh_inner():
                     current_idx = (current_idx + 1) % n if n else 0
                 d_indices[mac]          = current_idx
                 state['device_indices'] = d_indices
+
+        # Queued image: serve it if the device has already downloaded the updated zip.
+        # If redownload is still True the device hasn't fetched since queueing, so the
+        # appended index would be out of range on the device — leave the queue for next cycle.
+        queued = state.get('queued_image')
+        pool   = get_device_active_bases(mac, orientation)
+        q_idx  = _queued_idx_for(queued, mac, pool)
+        if q_idx is not None:
+            redownload = state.get('redownload', {}).get(mac, False)
+            if not redownload:
+                current_idx              = q_idx
+                state['queued_image']    = None
+                if sync and pid is not None:
+                    state.setdefault('playlist_indices', {})[str(pid)] = current_idx
+                else:
+                    state.setdefault('device_indices', {})[mac]        = current_idx
 
         save_state(state)
 
