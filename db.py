@@ -1,3 +1,7 @@
+# ==========================================================================================
+# DESCRIPTION: SQLite Database model & legacy migration layer. Handles users, devices, playlist queues, and config tables.
+# DEPENDENCIES: sqlite3, json, threading
+# ==========================================================================================
 import os
 import json
 import logging

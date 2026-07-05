@@ -1,3 +1,7 @@
+# ==========================================================================================
+# DESCRIPTION: Web interface routes for the PicFrames dashboard (login, image pool, custom crops, device grids, user management).
+# DEPENDENCIES: Flask, db, image
+# ==========================================================================================
 import logging
 import os
 import time

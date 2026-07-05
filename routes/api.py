@@ -1,3 +1,7 @@
+# ==========================================================================================
+# DESCRIPTION: REST API endpoints for e-paper devices. Handles HMAC auth, state checks, checkin, ready, ack, daily-config, daily-zip, and OTA updates.
+# DEPENDENCIES: Flask, db, image
+# ==========================================================================================
 import hashlib
 import hmac
 import io

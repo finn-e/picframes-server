@@ -1,3 +1,7 @@
+# ==========================================================================================
+# DESCRIPTION: Administration REST and form endpoints. Handles user accounts, custom playlists, image sequencing, and trigger rebuilds.
+# DEPENDENCIES: Flask, db, image
+# ==========================================================================================
 import logging
 import os
 import threading

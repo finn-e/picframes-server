@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# ==========================================================================================
+# DESCRIPTION: Floyd-Steinberg ditherer for portrait images (480x800). Dithers to 6-color Spectra 6 palette and packs as 4bpp RAW binary.
+# DEPENDENCIES: numpy, PIL (Pillow)
+# ==========================================================================================
 import sys
 import os
 import numpy as np

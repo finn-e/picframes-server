@@ -1,3 +1,7 @@
+# ==========================================================================================
+# DESCRIPTION: Image processing pipeline. Manages orientation rotation, smart cropping, scaling, and Floyd-Steinberg dithering.
+# DEPENDENCIES: PIL (Pillow), numpy, db, converters
+# ==========================================================================================
 import os
 import logging
 import numpy as np

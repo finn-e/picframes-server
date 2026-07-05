@@ -1,3 +1,7 @@
+# ==========================================================================================
+# DESCRIPTION: Flask server entrypoint. Initialises app, DB, registers UI/API/Admin routes, and runs mDNS zeroconf broadcasting.
+# DEPENDENCIES: Flask, zeroconf, routes (ui, api, admin), db
+# ==========================================================================================
 import logging
 import os
 import socket
