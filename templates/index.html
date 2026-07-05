@@ -140,16 +140,45 @@
         .btn-queue-sm.active { background: var(--accent); color: white; border-color: var(--accent); }
         .img-drawer { display: none; border-top: 1px solid var(--border); }
         .img-card-list.open .img-drawer { display: block; }
-        .triple-preview { display: grid; grid-template-columns: 1fr 1fr 1fr; }
-        @media (max-width: 768px) { .triple-preview { grid-template-columns: 1fr; } }
-        .preview-cell { padding: 1rem; display: flex; flex-direction: column; align-items: center; background: rgba(0,0,0,0.18); border-right: 1px solid var(--border); }
-        .preview-cell:last-child { border-right: none; }
-        .preview-label { font-size: 0.75rem; text-transform: uppercase; color: var(--muted); margin-bottom: 0.5rem; font-weight: 600; width: 100%; display: flex; justify-content: space-between; align-items: center; }
-        .preview-img { max-width: 100%; max-height: 200px; border-radius: 6px; object-fit: contain; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
-        .crop-container { position: relative; width: 100%; max-height: 200px; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 8px; background: #0b0f19; border: 1px solid var(--border); }
-        .crop-bg-img { display: block; max-width: 100%; max-height: 200px; object-fit: contain; pointer-events: none; }
-        .crop-overlay-box { position: absolute; border: 2px dashed var(--accent); background: rgba(79,142,247,0.22); cursor: grab; }
-        .drawer-actions { padding: 0.75rem 1rem; display: flex; justify-content: flex-end; gap: 0.6rem; background: rgba(0,0,0,0.08); border-top: 1px solid var(--border); }
+
+        /* Two-column image drawer */
+        .img-drawer-inner { display: grid; grid-template-columns: 1fr 220px; }
+        @media (max-width: 640px) { .img-drawer-inner { grid-template-columns: 1fr; } }
+        .drawer-orig-wrap { padding: 1rem; background: rgba(0,0,0,0.18); display: flex; align-items: center; justify-content: center; }
+        .drawer-orig-img { max-width: 100%; max-height: 280px; object-fit: contain; border-radius: 8px; cursor: pointer; transition: opacity 0.15s; }
+        .drawer-orig-img:hover { opacity: 0.82; }
+        .drawer-ctrl-col { padding: 0.85rem; border-left: 1px solid var(--border); display: flex; flex-direction: column; gap: 0.5rem; background: rgba(0,0,0,0.12); }
+        .drawer-ctrl-lp { display: flex; align-items: center; justify-content: space-between; font-size: 0.82rem; font-weight: 600; color: var(--muted); }
+        .drawer-ctrl-btn { width: 100%; padding: 0.38rem 0.7rem; border-radius: 7px; font-size: 0.8rem; font-weight: 600; background: rgba(255,255,255,0.06); color: var(--text); border: 1px solid var(--border); cursor: pointer; font-family: inherit; text-align: left; transition: background 0.15s; }
+        .drawer-ctrl-btn:hover { background: rgba(255,255,255,0.11); }
+        .drawer-ctrl-btn.danger { color: var(--danger); border-color: rgba(239,68,68,0.3); }
+        .drawer-ctrl-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+        .drawer-ctrl-sep { height: 1px; background: var(--border); margin: 0.2rem 0; }
+
+        /* Editor modal */
+        #editor-modal { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,0.82); display: none; align-items: center; justify-content: center; }
+        #editor-modal.open { display: flex; }
+        #editor-wrap { display: flex; background: var(--card); border: 1px solid var(--border); border-radius: 16px; max-width: 95vw; max-height: 95vh; overflow: hidden; box-shadow: 0 24px 80px rgba(0,0,0,0.6); }
+        #editor-img-area { background: #08111f; display: flex; align-items: center; justify-content: center; flex: 1; min-width: 0; padding: 1.5rem; overflow: hidden; }
+        #editor-img-wrap { position: relative; display: inline-block; user-select: none; }
+        #editor-img-wrap img { display: block; max-width: 65vw; max-height: 80vh; pointer-events: none; border-radius: 4px; }
+        .ecrop-rect { position: absolute; box-sizing: border-box; pointer-events: none; }
+        .ecrop-rect.active { pointer-events: auto; }
+        .ecrop-handle { position: absolute; width: 11px; height: 11px; border-radius: 2px; border: 2px solid rgba(0,0,0,0.55); transform: translate(-50%,-50%); pointer-events: auto; z-index: 2; }
+        #editor-sidebar { width: 268px; flex-shrink: 0; padding: 1rem 1rem 1.2rem; overflow-y: auto; border-left: 1px solid var(--border); display: flex; flex-direction: column; gap: 0.6rem; }
+        .ed-lbl { font-size: 0.7rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; margin-top: 0.2rem; }
+        .ed-slider-row { display: flex; flex-direction: column; gap: 0.18rem; }
+        .ed-slider-row > label { font-size: 0.78rem; color: var(--muted); display: flex; justify-content: space-between; }
+        .ed-track { position: relative; height: 8px; border-radius: 4px; margin-bottom: 0.1rem; }
+        .ed-track input[type=range] { -webkit-appearance: none; appearance: none; position: absolute; inset: 0; width: 100%; height: 100%; background: transparent; cursor: pointer; margin: 0; }
+        .ed-track input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: white; border: 2px solid rgba(0,0,0,0.45); cursor: grab; }
+        .ed-track input[type=range]::-webkit-slider-runnable-track { height: 8px; border-radius: 4px; background: transparent; }
+        .ed-crop-btns { display: flex; gap: 0.4rem; }
+        .ed-crop-btn { flex: 1; padding: 0.35rem 0; border-radius: 7px; font-size: 0.78rem; font-weight: 700; border: 2px dashed; background: transparent; cursor: pointer; font-family: inherit; text-align: center; transition: border-style 0.15s; }
+        .ed-crop-btn.active { border-style: solid; }
+        .ed-zoom-btns { display: flex; gap: 0.4rem; }
+        .ed-zoom-btn { flex: 1; padding: 0.32rem 0; border-radius: 7px; font-size: 0.82rem; font-weight: 700; background: rgba(255,255,255,0.06); color: var(--text); border: 1px solid var(--border); cursor: pointer; font-family: inherit; }
+        .ed-zoom-btn:hover { background: rgba(255,255,255,0.11); }
 
         /* Grid view */
         .img-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.75rem; }
@@ -422,45 +451,39 @@
                 </div>
             </div>
             <div class="img-drawer">
-                <div class="triple-preview">
-                    <div class="preview-cell">
-                        <div class="preview-label">Original</div>
-                        <img class="preview-img" src="{{ url_for('ui.serve_original', filename=img.original_name) }}" loading="lazy">
+                <div class="img-drawer-inner">
+                    <div class="drawer-orig-wrap">
+                        <img class="drawer-orig-img"
+                             src="{{ url_for('ui.serve_original', filename=img.original_name) }}"
+                             loading="lazy"
+                             onclick="openEditor('{{ img.base }}')"
+                             title="Click to open editor">
                     </div>
-                    <div class="preview-cell">
-                        <div class="preview-label">
-                            <span>Landscape EPD</span>
-                            <span class="toggle-wrap">
-                                <input type="checkbox" class="toggle" {% if img.l_on %}checked{% endif %}
-                                       onchange="toggleOrient('{{ img.base }}', 'l', this.checked)">
-                            </span>
+                    <div class="drawer-ctrl-col">
+                        <div class="drawer-ctrl-lp">
+                            <span>Landscape</span>
+                            <input type="checkbox" class="toggle" {% if img.l_on %}checked{% endif %}
+                                   onchange="toggleOrient('{{ img.base }}', 'l', this.checked)">
                         </div>
-                        <div class="crop-container" data-base="{{ img.base }}" data-orient="l"
-                             data-offset="{{ img.offset_l }}" data-w="{{ img.orig_w }}" data-h="{{ img.orig_h }}">
-                            <img class="crop-bg-img" src="{{ url_for('ui.serve_image', filename=img.base + '_dithered.png') }}" onerror="this.style.display='none'" loading="lazy">
-                            <div class="crop-overlay-box"></div>
+                        <div class="drawer-ctrl-lp">
+                            <span>Portrait</span>
+                            <input type="checkbox" class="toggle" {% if img.p_on %}checked{% endif %}
+                                   onchange="toggleOrient('{{ img.base }}', 'p', this.checked)">
                         </div>
+                        <div class="drawer-ctrl-sep"></div>
+                        <button class="drawer-ctrl-btn {% if is_queued %}active{% endif %}"
+                                data-queue-base="{{ img.base }}"
+                                onclick="queueImage('{{ img.base }}', this)">⚡ Queue</button>
+                        <form action="{{ url_for('admin.convert_file', filename=img.original_name) }}" method="POST" style="margin:0;">
+                            <button type="submit" class="drawer-ctrl-btn">↻ Reconvert</button>
+                        </form>
+                        <button class="drawer-ctrl-btn" onclick="openEditor('{{ img.base }}')">✏ Edit</button>
+                        <div class="drawer-ctrl-sep"></div>
+                        <form action="{{ url_for('admin.delete_file', filename=img.original_name) }}" method="POST" style="margin:0;"
+                              onsubmit="return confirm('Delete this asset?');">
+                            <button type="submit" class="drawer-ctrl-btn danger">🗑 Remove</button>
+                        </form>
                     </div>
-                    <div class="preview-cell">
-                        <div class="preview-label">
-                            <span>Portrait EPD</span>
-                            <span class="toggle-wrap">
-                                <input type="checkbox" class="toggle" {% if img.p_on %}checked{% endif %}
-                                       onchange="toggleOrient('{{ img.base }}', 'p', this.checked)">
-                            </span>
-                        </div>
-                        <div class="crop-container" data-base="{{ img.base }}" data-orient="p"
-                             data-offset="{{ img.offset_p }}" data-w="{{ img.orig_w }}" data-h="{{ img.orig_h }}">
-                            <img class="crop-bg-img" src="{{ url_for('ui.serve_image', filename=img.base + '_dithered.png') }}" onerror="this.style.display='none'" loading="lazy">
-                            <div class="crop-overlay-box"></div>
-                        </div>
-                    </div>
-                </div>
-                <div class="drawer-actions">
-                    <button class="btn btn-ghost btn-sm" disabled style="opacity:0.4; cursor:not-allowed;">Share</button>
-                    <form action="{{ url_for('admin.delete_file', filename=img.original_name) }}" method="POST" onsubmit="return confirm('Delete this asset?');">
-                        <button type="submit" class="btn btn-danger btn-sm">🗑 Remove</button>
-                    </form>
                 </div>
             </div>
         </div>
@@ -522,44 +545,37 @@
                 </div>
             </div>
             <div class="img-drawer">
-                <div class="triple-preview">
-                    <div class="preview-cell">
-                        <div class="preview-label">Original</div>
-                        <img class="preview-img" src="{{ url_for('ui.serve_original', filename=img.original_name) }}" loading="lazy">
+                <div class="img-drawer-inner">
+                    <div class="drawer-orig-wrap">
+                        <img class="drawer-orig-img"
+                             src="{{ url_for('ui.serve_original', filename=img.original_name) }}"
+                             loading="lazy"
+                             onclick="openEditor('{{ img.base }}')"
+                             title="Click to open editor">
                     </div>
-                    <div class="preview-cell">
-                        <div class="preview-label">
-                            <span>Landscape EPD</span>
-                            <span class="toggle-wrap">
-                                <input type="checkbox" class="toggle" {% if img.l_on %}checked{% endif %}
-                                       onchange="toggleOrient('{{ img.base }}', 'l', this.checked)">
-                            </span>
+                    <div class="drawer-ctrl-col">
+                        <div class="drawer-ctrl-lp">
+                            <span>Landscape</span>
+                            <input type="checkbox" class="toggle" {% if img.l_on %}checked{% endif %}
+                                   onchange="toggleOrient('{{ img.base }}', 'l', this.checked)">
                         </div>
-                        <div class="crop-container" data-base="{{ img.base }}" data-orient="l"
-                             data-offset="{{ img.offset_l }}" data-w="{{ img.orig_w }}" data-h="{{ img.orig_h }}">
-                            <img class="crop-bg-img" src="{{ url_for('ui.serve_image', filename=img.base + '_dithered.png') }}" onerror="this.style.display='none'" loading="lazy">
-                            <div class="crop-overlay-box"></div>
+                        <div class="drawer-ctrl-lp">
+                            <span>Portrait</span>
+                            <input type="checkbox" class="toggle" {% if img.p_on %}checked{% endif %}
+                                   onchange="toggleOrient('{{ img.base }}', 'p', this.checked)">
                         </div>
+                        <div class="drawer-ctrl-sep"></div>
+                        <button class="drawer-ctrl-btn {% if is_queued %}active{% endif %}"
+                                data-queue-base="{{ img.base }}"
+                                onclick="queueImage('{{ img.base }}', this)">⚡ Queue</button>
+                        <form action="{{ url_for('admin.convert_file_for_playlist', pid=pl.id, filename=img.original_name) }}" method="POST" style="margin:0;">
+                            <button type="submit" class="drawer-ctrl-btn">↻ Reconvert</button>
+                        </form>
+                        <button class="drawer-ctrl-btn" onclick="openEditor('{{ img.base }}')">✏ Edit</button>
+                        <div class="drawer-ctrl-sep"></div>
+                        <button class="drawer-ctrl-btn danger"
+                                onclick="removeFromPlaylist({{ pl.id }}, '{{ base }}')">✕ Remove</button>
                     </div>
-                    <div class="preview-cell">
-                        <div class="preview-label">
-                            <span>Portrait EPD</span>
-                            <span class="toggle-wrap">
-                                <input type="checkbox" class="toggle" {% if img.p_on %}checked{% endif %}
-                                       onchange="toggleOrient('{{ img.base }}', 'p', this.checked)">
-                            </span>
-                        </div>
-                        <div class="crop-container" data-base="{{ img.base }}" data-orient="p"
-                             data-offset="{{ img.offset_p }}" data-w="{{ img.orig_w }}" data-h="{{ img.orig_h }}">
-                            <img class="crop-bg-img" src="{{ url_for('ui.serve_image', filename=img.base + '_dithered.png') }}" onerror="this.style.display='none'" loading="lazy">
-                            <div class="crop-overlay-box"></div>
-                        </div>
-                    </div>
-                </div>
-                <div class="drawer-actions">
-                    <form action="{{ url_for('admin.convert_file_for_playlist', pid=pl.id, filename=img.original_name) }}" method="POST">
-                        <button type="submit" class="btn btn-ghost btn-sm">↻ Reconvert</button>
-                    </form>
                 </div>
             </div>
         </div>
@@ -650,6 +666,98 @@
     {% endif %}
 </div>
 
+<!-- ===== Image Editor Modal ===== -->
+<div id="editor-modal">
+  <div id="editor-wrap">
+    <!-- Left: image display with crop overlays -->
+    <div id="editor-img-area">
+      <div id="editor-img-wrap">
+        <!-- Original image (default view) -->
+        <img id="editor-orig" src="" alt="">
+        <!-- Dithered preview (shown in dither mode; same layout as original) -->
+        <img id="editor-preview" src="" alt="" style="display:none; position:absolute; inset:0; width:100%; height:100%; object-fit:contain; pointer-events:none;">
+        <!-- Landscape crop rect (green) -->
+        <div id="ecrop-l" class="ecrop-rect" style="display:none; border:2px dashed #22c55e;"></div>
+        <!-- Portrait crop rect (orange) -->
+        <div id="ecrop-p" class="ecrop-rect" style="display:none; border:2px dashed #f97316;"></div>
+      </div>
+    </div>
+    <!-- Right: sidebar controls -->
+    <div id="editor-sidebar">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-weight:700; font-size:1rem;">Edit Image</span>
+        <button onclick="closeEditor()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.4rem;line-height:1;">×</button>
+      </div>
+      <!-- Crop buttons -->
+      <div class="ed-lbl">Crop</div>
+      <div class="ed-crop-btns">
+        <button id="ed-crop-l-btn" class="ed-crop-btn" style="border-color:#22c55e;color:#22c55e;" onclick="setActiveCrop('l')">Landscape</button>
+        <button id="ed-crop-p-btn" class="ed-crop-btn" style="border-color:#f97316;color:#f97316;" onclick="setActiveCrop('p')">Portrait</button>
+      </div>
+      <div class="ed-zoom-btns">
+        <button class="ed-zoom-btn" onclick="zoomCrop(-1)">− Out</button>
+        <button class="ed-zoom-btn" onclick="zoomCrop(1)">+ In</button>
+      </div>
+      <!-- Dithered preview toggle -->
+      <label class="toggle-wrap" style="font-size:0.85rem;">
+        <input type="checkbox" class="toggle" id="ed-dither-toggle" onchange="setDitherMode(this.checked)">
+        <span>Dithered preview</span>
+      </label>
+      <!-- HSV sliders -->
+      <div class="ed-lbl">HSV</div>
+      <div class="ed-slider-row">
+        <label><span>Hue shift</span><span id="ed-hue-v">0°</span></label>
+        <div class="ed-track" style="background:linear-gradient(to right,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00);">
+          <input type="range" id="ed-hue" min="-180" max="180" value="0" step="1" oninput="onEdSlider()">
+        </div>
+      </div>
+      <div class="ed-slider-row">
+        <label><span>Saturation</span><span id="ed-sat-v">1.00</span></label>
+        <div class="ed-track" style="background:linear-gradient(to right,#555,#4f8ef7);">
+          <input type="range" id="ed-sat" min="0" max="3" value="1" step="0.05" oninput="onEdSlider()">
+        </div>
+      </div>
+      <div class="ed-slider-row">
+        <label><span>Value</span><span id="ed-val-v">1.00</span></label>
+        <div class="ed-track" style="background:linear-gradient(to right,#000,#fff);">
+          <input type="range" id="ed-val" min="0" max="3" value="1" step="0.05" oninput="onEdSlider()">
+        </div>
+      </div>
+      <!-- RGB sliders -->
+      <div class="ed-lbl">RGB Gain</div>
+      <div class="ed-slider-row">
+        <label><span>Red</span><span id="ed-r-v">1.00</span></label>
+        <div class="ed-track" style="background:linear-gradient(to right,#000,#f44);">
+          <input type="range" id="ed-r" min="0" max="3" value="1" step="0.05" oninput="onEdSlider()">
+        </div>
+      </div>
+      <div class="ed-slider-row">
+        <label><span>Green</span><span id="ed-g-v">1.00</span></label>
+        <div class="ed-track" style="background:linear-gradient(to right,#000,#4f4);">
+          <input type="range" id="ed-g" min="0" max="3" value="1" step="0.05" oninput="onEdSlider()">
+        </div>
+      </div>
+      <div class="ed-slider-row">
+        <label><span>Blue</span><span id="ed-b-v">1.00</span></label>
+        <div class="ed-track" style="background:linear-gradient(to right,#000,#44f);">
+          <input type="range" id="ed-b" min="0" max="3" value="1" step="0.05" oninput="onEdSlider()">
+        </div>
+      </div>
+      <!-- Background color -->
+      <div class="ed-lbl">Outfill BG</div>
+      <div style="display:flex; align-items:center; gap:0.6rem;">
+        <input type="color" id="ed-bg" value="#ffffff" style="width:48px;height:32px;border:1px solid var(--border);border-radius:6px;cursor:pointer;background:none;" oninput="onEdSlider()">
+        <span style="font-size:0.82rem;color:var(--muted);">BG color for outfill</span>
+      </div>
+      <!-- Save / Cancel -->
+      <div style="margin-top:auto; display:flex; gap:0.5rem; padding-top:0.5rem;">
+        <button class="btn" style="flex:1;" onclick="saveEdits()">Save</button>
+        <button class="btn btn-ghost" style="flex:1;" onclick="closeEditor()">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -664,7 +772,6 @@ window.addEventListener('DOMContentLoaded', () => {
     document.documentElement.setAttribute('data-theme', t);
     const s = document.getElementById('theme-select'); if(s) s.value = t;
     restoreDrawers();
-    initCropOverlays();
 });
 
 // ---- Toast ----
@@ -731,7 +838,6 @@ function toggleCard(rowEl) {
     const card = rowEl.closest('.img-card-list');
     if(!card) return;
     card.classList.toggle('open');
-    if(card.classList.contains('open')) initCropOverlays(card);
 }
 
 // ---- Inline rename ----
@@ -1041,57 +1147,328 @@ function deleteUser(uid, username) {
         });
 }
 
-// ---- Crop overlays ----
-function updateCropOverlay(container) {
-    const orient = container.dataset.orient, offset = parseFloat(container.dataset.offset);
-    const w = parseFloat(container.dataset.w), h = parseFloat(container.dataset.h), r = w/h;
-    const box = container.querySelector('.crop-overlay-box');
-    let widthPct, heightPct, leftPct, topPct;
-    if(orient === 'l') {
-        const tR = 5/3;
-        if(r <= tR) { widthPct=100; heightPct=(r/tR)*100; leftPct=0; topPct=offset*(100-heightPct); }
-        else { heightPct=100; widthPct=(tR/r)*100; topPct=0; leftPct=50-(widthPct/2); }
+// ===== Image Editor Modal =====
+const ED_AR = { l: 5/3, p: 3/5 }; // landscape / portrait aspect ratios
+
+let edSt = {
+    base: null, origW: 0, origH: 0,
+    cropL: null, cropP: null,          // {x,y,w,h} in original px
+    hueShift: 0, saturation: 1, valueAdj: 1,
+    rGain: 1, gGain: 1, bGain: 1,
+    bgColor: '#ffffff',
+    activeCrop: null,                  // 'l' or 'p'
+    ditherMode: false,
+};
+let edPreviewTimer = null;
+
+function _defaultCrop(origW, origH, orient) {
+    const ar = ED_AR[orient];
+    const r = origW / origH;
+    let x, y, w, h;
+    if (orient === 'l') {
+        if (r <= ar) { w=origW; h=w/ar; x=0; y=(origH-h)/2; }
+        else          { h=origH; w=h*ar; y=0; x=(origW-w)/2; }
     } else {
-        const tR = 3/5;
-        if(r >= tR) { heightPct=100; widthPct=(tR/r)*100; topPct=0; leftPct=offset*(100-widthPct); }
-        else { widthPct=100; heightPct=(r/tR)*100; leftPct=0; topPct=50-(heightPct/2); }
+        if (r >= ar) { h=origH; w=h*ar; y=0; x=(origW-w)/2; }
+        else          { w=origW; h=w/ar; x=0; y=(origH-h)/2; }
     }
-    box.style.width=widthPct+'%'; box.style.height=heightPct+'%'; box.style.left=leftPct+'%'; box.style.top=topPct+'%';
+    return {x, y, w, h};
 }
 
-function initCropOverlays(root) {
-    (root || document).querySelectorAll('.crop-container').forEach(container => {
-        if(container._cropInit) return; container._cropInit = true;
-        updateCropOverlay(container);
-        const box = container.querySelector('.crop-overlay-box');
-        let dragging=false, startY=0, startX=0, startOffset=0;
-        box.addEventListener('mousedown', e => {
-            e.preventDefault(); e.stopPropagation(); dragging=true;
-            startY=e.clientY; startX=e.clientX; startOffset=parseFloat(container.dataset.offset);
-        });
-        window.addEventListener('mousemove', e => {
-            if(!dragging) return;
-            const cr = container.getBoundingClientRect();
-            const orient = container.dataset.orient, w = parseFloat(container.dataset.w), h = parseFloat(container.dataset.h), r = w/h;
-            let delta = 0;
-            if(orient === 'l' && r <= 5/3) {
-                const hp = (r/(5/3))*100; const maxPx = cr.height*(1-hp/100);
-                if(maxPx>0) delta = (e.clientY-startY)/maxPx;
-            } else if(orient === 'p' && r >= 3/5) {
-                const wp = ((3/5)/r)*100; const maxPx = cr.width*(1-wp/100);
-                if(maxPx>0) delta = (e.clientX-startX)/maxPx;
+function openEditor(base) {
+    edSt.base = base;
+    edSt.activeCrop = null;
+    edSt.ditherMode = false;
+    document.getElementById('ed-dither-toggle').checked = false;
+    document.getElementById('editor-orig').style.opacity = '1';
+    document.getElementById('editor-preview').style.display = 'none';
+    document.getElementById('editor-modal').classList.add('open');
+
+    // Resolve the original image URL from the drawer thumbnail already in the DOM
+    const drawerImg = document.querySelector(`.img-card-list[data-base="${CSS.escape(base)}"] .drawer-orig-img`);
+    const origSrc = drawerImg ? drawerImg.src : '';
+
+    fetch('/image-edit/' + encodeURIComponent(base))
+        .then(r => r.json())
+        .then(data => {
+            edSt.hueShift   = typeof data.hue_shift   === 'number' ? data.hue_shift   : 0;
+            edSt.saturation = typeof data.saturation  === 'number' ? data.saturation  : 1;
+            edSt.valueAdj   = typeof data.value_adj   === 'number' ? data.value_adj   : 1;
+            edSt.rGain      = typeof data.r_gain      === 'number' ? data.r_gain      : 1;
+            edSt.gGain      = typeof data.g_gain      === 'number' ? data.g_gain      : 1;
+            edSt.bGain      = typeof data.b_gain      === 'number' ? data.b_gain      : 1;
+            edSt.bgColor    = data.bg_color || '#ffffff';
+            edSt.cropL      = data.crop_l || null;
+            edSt.cropP      = data.crop_p || null;
+            _syncSliders();
+            const imgEl = document.getElementById('editor-orig');
+            imgEl.onload = () => {
+                edSt.origW = imgEl.naturalWidth;
+                edSt.origH = imgEl.naturalHeight;
+                if (!edSt.cropL) edSt.cropL = _defaultCrop(edSt.origW, edSt.origH, 'l');
+                if (!edSt.cropP) edSt.cropP = _defaultCrop(edSt.origW, edSt.origH, 'p');
+                renderCropRects();
+            };
+            if (imgEl.complete && imgEl.naturalWidth && imgEl.src === origSrc) {
+                edSt.origW = imgEl.naturalWidth; edSt.origH = imgEl.naturalHeight;
+                if (!edSt.cropL) edSt.cropL = _defaultCrop(edSt.origW, edSt.origH, 'l');
+                if (!edSt.cropP) edSt.cropP = _defaultCrop(edSt.origW, edSt.origH, 'p');
+                renderCropRects();
+            } else {
+                imgEl.src = origSrc;
             }
-            container.dataset.offset = Math.max(0,Math.min(1,startOffset+delta));
-            updateCropOverlay(container);
         });
-        window.addEventListener('mouseup', () => {
-            if(!dragging) return; dragging=false;
-            fetch('/recrop', {method:'POST', headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({base:container.dataset.base, orient:container.dataset.orient, offset:parseFloat(container.dataset.offset)})})
-                .then(r=>r.json()).then(d => { if(d.ok) toast('Asset re-cropped'); });
-        });
+}
+
+function closeEditor() {
+    document.getElementById('editor-modal').classList.remove('open');
+    // Clean up handles
+    ['ecrop-l','ecrop-p'].forEach(id => {
+        const el = document.getElementById(id);
+        el.style.display = 'none';
+        el.innerHTML = '';
+    });
+    edSt.base = null;
+}
+
+// Close on Escape or click outside editor-wrap
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeEditor(); });
+document.getElementById('editor-modal').addEventListener('click', e => {
+    if (e.target === document.getElementById('editor-modal')) closeEditor();
+});
+
+function _syncSliders() {
+    document.getElementById('ed-hue').value = edSt.hueShift;
+    document.getElementById('ed-sat').value = edSt.saturation;
+    document.getElementById('ed-val').value = edSt.valueAdj;
+    document.getElementById('ed-r').value   = edSt.rGain;
+    document.getElementById('ed-g').value   = edSt.gGain;
+    document.getElementById('ed-b').value   = edSt.bGain;
+    document.getElementById('ed-bg').value  = edSt.bgColor;
+    _updateSliderLabels();
+}
+function _updateSliderLabels() {
+    document.getElementById('ed-hue-v').textContent = Math.round(edSt.hueShift) + '°';
+    document.getElementById('ed-sat-v').textContent = edSt.saturation.toFixed(2);
+    document.getElementById('ed-val-v').textContent = edSt.valueAdj.toFixed(2);
+    document.getElementById('ed-r-v').textContent   = edSt.rGain.toFixed(2);
+    document.getElementById('ed-g-v').textContent   = edSt.gGain.toFixed(2);
+    document.getElementById('ed-b-v').textContent   = edSt.bGain.toFixed(2);
+}
+
+function onEdSlider() {
+    edSt.hueShift   = parseFloat(document.getElementById('ed-hue').value);
+    edSt.saturation = parseFloat(document.getElementById('ed-sat').value);
+    edSt.valueAdj   = parseFloat(document.getElementById('ed-val').value);
+    edSt.rGain      = parseFloat(document.getElementById('ed-r').value);
+    edSt.gGain      = parseFloat(document.getElementById('ed-g').value);
+    edSt.bGain      = parseFloat(document.getElementById('ed-b').value);
+    edSt.bgColor    = document.getElementById('ed-bg').value;
+    _updateSliderLabels();
+    if (edSt.ditherMode) _schedulePreview();
+}
+
+function setDitherMode(on) {
+    edSt.ditherMode = on;
+    const prev = document.getElementById('editor-preview');
+    const orig = document.getElementById('editor-orig');
+    if (on) { _schedulePreview(); }
+    else { prev.style.display = 'none'; orig.style.opacity = '1'; }
+}
+
+function _schedulePreview() {
+    clearTimeout(edPreviewTimer);
+    edPreviewTimer = setTimeout(_fetchPreview, 400);
+}
+
+function _fetchPreview() {
+    if (!edSt.base || !edSt.ditherMode) return;
+    const params = _buildParams();
+    fetch('/image-preview/' + encodeURIComponent(edSt.base), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(params),
+    }).then(r => r.blob()).then(blob => {
+        const url = URL.createObjectURL(blob);
+        const prev = document.getElementById('editor-preview');
+        prev.onload = () => URL.revokeObjectURL(url);
+        prev.src = url;
+        prev.style.display = '';
+        document.getElementById('editor-orig').style.opacity = '0';
+    }).catch(() => {});
+}
+
+function _buildParams() {
+    return {
+        crop_l: edSt.cropL,
+        crop_p: edSt.cropP,
+        hue_shift: edSt.hueShift,
+        saturation: edSt.saturation,
+        value_adj: edSt.valueAdj,
+        r_gain: edSt.rGain,
+        g_gain: edSt.gGain,
+        b_gain: edSt.bGain,
+        bg_color: edSt.bgColor,
+    };
+}
+
+function setActiveCrop(orient) {
+    edSt.activeCrop = (edSt.activeCrop === orient) ? null : orient;
+    document.getElementById('ed-crop-l-btn').classList.toggle('active', edSt.activeCrop === 'l');
+    document.getElementById('ed-crop-p-btn').classList.toggle('active', edSt.activeCrop === 'p');
+    renderCropRects();
+}
+
+function renderCropRects() {
+    const imgEl = document.getElementById('editor-orig');
+    if (!imgEl.naturalWidth) return;
+    const scX = imgEl.offsetWidth  / imgEl.naturalWidth;
+    const scY = imgEl.offsetHeight / imgEl.naturalHeight;
+    _renderRect('ecrop-l', edSt.cropL, scX, scY, '#22c55e', edSt.activeCrop === 'l');
+    _renderRect('ecrop-p', edSt.cropP, scX, scY, '#f97316', edSt.activeCrop === 'p');
+}
+
+function _renderRect(id, rect, scX, scY, color, active) {
+    const el = document.getElementById(id);
+    if (!rect) { el.style.display = 'none'; return; }
+    el.style.display = '';
+    el.style.left   = (rect.x * scX) + 'px';
+    el.style.top    = (rect.y * scY) + 'px';
+    el.style.width  = (rect.w * scX) + 'px';
+    el.style.height = (rect.h * scY) + 'px';
+    el.style.border = active ? `2px solid ${color}` : `2px dashed ${color}`;
+    el.innerHTML = '';
+    if (!active) return;
+
+    // 8 handles: corners + edge midpoints
+    const handles = [
+        {cx:0,   cy:0,   type:'tl', cursor:'nwse-resize'},
+        {cx:0.5, cy:0,   type:'t',  cursor:'ns-resize'},
+        {cx:1,   cy:0,   type:'tr', cursor:'nesw-resize'},
+        {cx:1,   cy:0.5, type:'r',  cursor:'ew-resize'},
+        {cx:1,   cy:1,   type:'br', cursor:'nwse-resize'},
+        {cx:0.5, cy:1,   type:'b',  cursor:'ns-resize'},
+        {cx:0,   cy:1,   type:'bl', cursor:'nesw-resize'},
+        {cx:0,   cy:0.5, type:'l',  cursor:'ew-resize'},
+    ];
+    handles.forEach(h => {
+        const hEl = document.createElement('div');
+        hEl.className = 'ecrop-handle';
+        hEl.style.left       = (h.cx * 100) + '%';
+        hEl.style.top        = (h.cy * 100) + '%';
+        hEl.style.background = color;
+        hEl.style.cursor     = h.cursor;
+        el.appendChild(hEl);
+        _attachHandleDrag(hEl, h.type, id === 'ecrop-l' ? 'l' : 'p', scX, scY);
+    });
+    // Drag inside the rect to move
+    el.style.cursor = 'move';
+    _attachRectMove(el, id === 'ecrop-l' ? 'l' : 'p', scX, scY);
+}
+
+function _attachHandleDrag(hEl, type, orient, scX, scY) {
+    hEl.addEventListener('mousedown', e => {
+        e.preventDefault(); e.stopPropagation();
+        const rect = orient === 'l' ? {...edSt.cropL} : {...edSt.cropP};
+        const startX = e.clientX, startY = e.clientY;
+        const ar = ED_AR[orient];
+        const MIN = 40;
+
+        function onMove(ev) {
+            const dx = (ev.clientX - startX) / scX;
+            const dy = (ev.clientY - startY) / scY;
+            let {x, y, w, h} = rect;
+            const right = x + w, bottom = y + h;
+
+            if (type === 'tl') {
+                w = Math.max(MIN, right - (x + dx)); h = w / ar;
+                x = right - w; y = bottom - h;
+            } else if (type === 'tr') {
+                w = Math.max(MIN, w + dx); h = w / ar;
+                y = bottom - h;
+            } else if (type === 'br') {
+                w = Math.max(MIN, w + dx); h = w / ar;
+            } else if (type === 'bl') {
+                w = Math.max(MIN, right - (x + dx)); h = w / ar;
+                x = right - w;
+            } else if (type === 't') {
+                h = Math.max(MIN, bottom - (y + dy)); w = h * ar;
+                y = bottom - h; x = (x + rect.w/2) - w/2;
+            } else if (type === 'b') {
+                h = Math.max(MIN, h + dy); w = h * ar;
+                x = (x + rect.w/2) - w/2;
+            } else if (type === 'l') {
+                w = Math.max(MIN, right - (x + dx)); h = w / ar;
+                x = right - w; y = (y + rect.h/2) - h/2;
+            } else if (type === 'r') {
+                w = Math.max(MIN, w + dx); h = w / ar;
+                y = (y + rect.h/2) - h/2;
+            }
+            const newRect = {x, y, w, h};
+            if (orient === 'l') edSt.cropL = newRect; else edSt.cropP = newRect;
+            renderCropRects();
+        }
+        function onUp() {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+        }
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
     });
 }
+
+function _attachRectMove(el, orient, scX, scY) {
+    el.addEventListener('mousedown', e => {
+        if (e.target !== el) return; // don't intercept handle events
+        e.preventDefault();
+        const rect = orient === 'l' ? {...edSt.cropL} : {...edSt.cropP};
+        const startX = e.clientX, startY = e.clientY;
+        function onMove(ev) {
+            const dx = (ev.clientX - startX) / scX;
+            const dy = (ev.clientY - startY) / scY;
+            const newRect = {x: rect.x + dx, y: rect.y + dy, w: rect.w, h: rect.h};
+            if (orient === 'l') edSt.cropL = newRect; else edSt.cropP = newRect;
+            renderCropRects();
+        }
+        function onUp() {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+        }
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+    });
+}
+
+function zoomCrop(dir) {
+    const orient = edSt.activeCrop;
+    if (!orient) return;
+    const rect = orient === 'l' ? edSt.cropL : edSt.cropP;
+    if (!rect) return;
+    const factor = dir > 0 ? 1.15 : 1/1.15;
+    const ar = ED_AR[orient];
+    const cx = rect.x + rect.w / 2, cy = rect.y + rect.h / 2;
+    const nw = Math.max(40, rect.w * factor);
+    const nh = nw / ar;
+    const newRect = {x: cx - nw/2, y: cy - nh/2, w: nw, h: nh};
+    if (orient === 'l') edSt.cropL = newRect; else edSt.cropP = newRect;
+    renderCropRects();
+}
+
+// Re-render crop rects when editor image finishes loading / window resizes
+window.addEventListener('resize', () => { if (edSt.base) renderCropRects(); });
+
+function saveEdits() {
+    if (!edSt.base) return;
+    fetch('/image-edit/' + encodeURIComponent(edSt.base), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(_buildParams()),
+    }).then(r => r.json()).then(d => {
+        if (d.ok) { toast('Edits saved — reconverting in background'); closeEditor(); }
+        else toast('Save failed');
+    }).catch(() => toast('Save failed'));
+}
+
 
 function toggleBattGraph(mac, badgeEl) {
     var panel = document.getElementById('batt-graph-' + mac);

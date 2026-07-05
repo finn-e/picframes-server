@@ -132,6 +132,20 @@ def init_db():
     c.execute("""CREATE INDEX IF NOT EXISTS idx_battery_mac_ts
         ON battery_history (mac, ts)""")
 
+    # Non-destructive image edit params (crop rects + colour adjustments)
+    c.execute("""CREATE TABLE IF NOT EXISTS image_edits (
+        base      TEXT PRIMARY KEY,
+        crop_l_x  REAL, crop_l_y REAL, crop_l_w REAL, crop_l_h REAL,
+        crop_p_x  REAL, crop_p_y REAL, crop_p_w REAL, crop_p_h REAL,
+        hue_shift REAL DEFAULT 0,
+        saturation REAL DEFAULT 1,
+        value_adj  REAL DEFAULT 1,
+        r_gain     REAL DEFAULT 1,
+        g_gain     REAL DEFAULT 1,
+        b_gain     REAL DEFAULT 1,
+        bg_color   TEXT DEFAULT '#ffffff'
+    )""")
+
     conn.commit()
 
     _seed_admin(conn, c)
@@ -607,6 +621,46 @@ def save_crops(crops):
         conn.commit(); conn.close()
     except Exception as e:
         logger.error(f"save_crops: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Non-destructive image edits (crop rects + colour adjustments)
+# ---------------------------------------------------------------------------
+
+def get_image_edits(base):
+    """Return a dict of edit params for base, or None if no edits saved."""
+    try:
+        conn = get_db()
+        row = conn.execute("SELECT * FROM image_edits WHERE base=?", (base,)).fetchone()
+        conn.close()
+        return dict(row) if row else None
+    except Exception as e:
+        logger.error(f"get_image_edits({base}): {e}")
+        return None
+
+
+def save_image_edits(base, params):
+    """Persist non-destructive edit params for base."""
+    try:
+        conn = get_db()
+        crop_l = params.get('crop_l') or {}
+        crop_p = params.get('crop_p') or {}
+        conn.execute("""INSERT OR REPLACE INTO image_edits
+            (base, crop_l_x, crop_l_y, crop_l_w, crop_l_h,
+             crop_p_x, crop_p_y, crop_p_w, crop_p_h,
+             hue_shift, saturation, value_adj, r_gain, g_gain, b_gain, bg_color)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+            base,
+            crop_l.get('x'), crop_l.get('y'), crop_l.get('w'), crop_l.get('h'),
+            crop_p.get('x'), crop_p.get('y'), crop_p.get('w'), crop_p.get('h'),
+            params.get('hue_shift', 0), params.get('saturation', 1),
+            params.get('value_adj', 1), params.get('r_gain', 1),
+            params.get('g_gain', 1), params.get('b_gain', 1),
+            params.get('bg_color', '#ffffff'),
+        ))
+        conn.commit(); conn.close()
+    except Exception as e:
+        logger.error(f"save_image_edits({base}): {e}")
 
 
 # ---------------------------------------------------------------------------

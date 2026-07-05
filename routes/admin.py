@@ -2,11 +2,14 @@
 # DESCRIPTION: Administration REST and form endpoints. Handles user accounts, custom playlists, image sequencing, and trigger rebuilds.
 # DEPENDENCIES: Flask, db, image
 # ==========================================================================================
+import io
 import logging
 import os
 import threading
 
-from flask import Blueprint, jsonify, redirect, request, session, url_for
+import numpy as np
+from flask import Blueprint, Response, jsonify, redirect, request, session, url_for
+from PIL import Image, ImageOps
 
 import db
 from db import (
@@ -19,11 +22,14 @@ from db import (
     create_user, delete_user,
     trigger_redownload, flags, ORIGINALS_DIR, IMAGES_DIR, ALLOWED_EXTENSIONS,
     LANDSCAPE_SUFFIX, PORTRAIT_SUFFIX,
+    get_image_edits, save_image_edits,
 )
 from image import (
     convert_image, ensure_artifacts_for_playlist,
     reconvert_all_intelligent, reconvert_for_playlist_screen,
     delete_all_artifacts,
+    apply_color_adjustments, dither_floyd_steinberg, PALETTE,
+    get_screen_types_for_image, _DEFAULT_SCREEN, convert_image_for_screen,
 )
 
 logger = logging.getLogger(__name__)
@@ -494,3 +500,119 @@ def user_delete(uid):
         return jsonify({'ok': False, 'error': 'Cannot delete yourself'}), 400
     delete_user(uid)
     return jsonify({'ok': True})
+
+
+# ---------------------------------------------------------------------------
+# Non-destructive image editor endpoints
+# ---------------------------------------------------------------------------
+
+@admin_bp.route('/image-edit/<base>', methods=['GET'])
+def image_edit_get(base):
+    """Return saved non-destructive edit params as JSON (or defaults if none)."""
+    edits = get_image_edits(base)
+    if edits is None:
+        return jsonify({
+            'crop_l': None, 'crop_p': None,
+            'hue_shift': 0, 'saturation': 1, 'value_adj': 1,
+            'r_gain': 1, 'g_gain': 1, 'b_gain': 1,
+            'bg_color': '#ffffff',
+        })
+    result = {
+        'hue_shift': edits.get('hue_shift', 0) or 0,
+        'saturation': edits.get('saturation', 1) or 1,
+        'value_adj': edits.get('value_adj', 1) or 1,
+        'r_gain': edits.get('r_gain', 1) or 1,
+        'g_gain': edits.get('g_gain', 1) or 1,
+        'b_gain': edits.get('b_gain', 1) or 1,
+        'bg_color': edits.get('bg_color', '#ffffff') or '#ffffff',
+        'crop_l': (
+            {'x': edits['crop_l_x'], 'y': edits['crop_l_y'],
+             'w': edits['crop_l_w'], 'h': edits['crop_l_h']}
+            if edits.get('crop_l_w') is not None else None
+        ),
+        'crop_p': (
+            {'x': edits['crop_p_x'], 'y': edits['crop_p_y'],
+             'w': edits['crop_p_w'], 'h': edits['crop_p_h']}
+            if edits.get('crop_p_w') is not None else None
+        ),
+    }
+    return jsonify(result)
+
+
+@admin_bp.route('/image-edit/<base>', methods=['POST'])
+def image_edit_save(base):
+    """Persist edit params for base and trigger background reconversion."""
+    data = request.get_json() or {}
+    save_image_edits(base, data)
+
+    original_name = None
+    for f in os.listdir(ORIGINALS_DIR):
+        if os.path.splitext(f)[0] == base:
+            original_name = f; break
+    if not original_name:
+        return jsonify({'ok': False, 'error': 'Original not found'}), 404
+
+    src = os.path.join(ORIGINALS_DIR, original_name)
+
+    def _bg():
+        try:
+            delete_all_artifacts(base)
+            sizes = get_screen_types_for_image(base) or {_DEFAULT_SCREEN}
+            for w, h in sizes:
+                convert_image_for_screen(src, base, w, h)
+            trigger_redownload()
+        except Exception as e:
+            logger.error(f"image_edit_save bg convert({base}): {e}")
+
+    threading.Thread(target=_bg, daemon=True).start()
+    return jsonify({'ok': True})
+
+
+@admin_bp.route('/image-preview/<base>', methods=['POST'])
+def image_preview(base):
+    """Return a dithered preview PNG (full image, no crop) with current colour params applied."""
+    data = request.get_json() or {}
+
+    src_path = None
+    for f in os.listdir(ORIGINALS_DIR):
+        if os.path.splitext(f)[0] == base:
+            src_path = os.path.join(ORIGINALS_DIR, f); break
+    if not src_path:
+        return '', 404
+
+    try:
+        img = ImageOps.exif_transpose(Image.open(src_path)).convert('RGB')
+
+        # Downscale to at most 800px on the long side for speed
+        w_orig, h_orig = img.size
+        max_dim = 800
+        if max(w_orig, h_orig) > max_dim:
+            if w_orig >= h_orig:
+                img = img.resize((max_dim, int(h_orig * max_dim / w_orig)),
+                                 Image.Resampling.LANCZOS)
+            else:
+                img = img.resize((int(w_orig * max_dim / h_orig), max_dim),
+                                 Image.Resampling.LANCZOS)
+
+        # Apply colour adjustments
+        img = apply_color_adjustments(
+            img,
+            hue_shift=float(data.get('hue_shift', 0) or 0),
+            saturation=float(data.get('saturation', 1) or 1),
+            value_adj=float(data.get('value_adj', 1) or 1),
+            r_gain=float(data.get('r_gain', 1) or 1),
+            g_gain=float(data.get('g_gain', 1) or 1),
+            b_gain=float(data.get('b_gain', 1) or 1),
+        )
+
+        # Dither with the 6-colour palette
+        dithered = dither_floyd_steinberg(np.array(img, dtype=np.float32), PALETTE)
+        result_img = Image.fromarray(dithered)
+
+        buf = io.BytesIO()
+        result_img.save(buf, format='PNG')
+        buf.seek(0)
+        return Response(buf.read(), mimetype='image/png')
+    except Exception as e:
+        logger.error(f"image_preview({base}): {e}")
+        return '', 500

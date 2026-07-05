@@ -7,7 +7,7 @@ import logging
 import numpy as np
 from PIL import Image, ImageOps
 from db import (ORIGINALS_DIR, IMAGES_DIR, LANDSCAPE_SUFFIX, PORTRAIT_SUFFIX,
-                load_crops, load_image_order, save_image_order)
+                load_crops, load_image_order, save_image_order, get_image_edits)
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +75,58 @@ def dither_floyd_steinberg(img_array, palette):
             padded[y + 1, x    ] += err * (5.0 / 16.0)
             padded[y + 1, x + 1] += err * (1.0 / 16.0)
     return padded[0:h, 1:w+1].astype(np.uint8)
+
+
+def _crop_with_outfill(img, crop_x, crop_y, crop_w, crop_h, bg_color='#ffffff'):
+    """Crop a region from img; out-of-bounds areas are filled with bg_color.
+
+    Coordinates are in original-image pixels and may extend beyond the image
+    boundaries (negative, or past width/height).  The returned image has the
+    requested (crop_w × crop_h) size.
+    """
+    iw, ih = img.size
+    cw, ch = max(1, int(round(crop_w))), max(1, int(round(crop_h)))
+    try:
+        r = int(bg_color[1:3], 16)
+        g = int(bg_color[3:5], 16)
+        b = int(bg_color[5:7], 16)
+    except Exception:
+        r, g, b = 255, 255, 255
+    canvas = Image.new('RGB', (cw, ch), (r, g, b))
+    sx1 = max(0, int(round(crop_x)))
+    sy1 = max(0, int(round(crop_y)))
+    sx2 = min(iw, int(round(crop_x + crop_w)))
+    sy2 = min(ih, int(round(crop_y + crop_h)))
+    if sx2 > sx1 and sy2 > sy1:
+        region = img.crop((sx1, sy1, sx2, sy2))
+        canvas.paste(region, (sx1 - int(round(crop_x)), sy1 - int(round(crop_y))))
+    return canvas
+
+
+def apply_color_adjustments(img, hue_shift=0.0, saturation=1.0, value_adj=1.0,
+                             r_gain=1.0, g_gain=1.0, b_gain=1.0):
+    """Apply HSV shift and per-channel RGB gain to a PIL RGB Image.
+
+    Uses PIL's built-in HSV colour space for the HSV pass to avoid hand-rolled
+    numpy vectorisation bugs.  Returns a new PIL RGB Image.  Identity fast-path
+    skips all processing when all params are neutral.
+    """
+    if (hue_shift == 0 and saturation == 1.0 and value_adj == 1.0
+            and r_gain == 1.0 and g_gain == 1.0 and b_gain == 1.0):
+        return img  # fast path: no-op
+    if hue_shift != 0 or saturation != 1.0 or value_adj != 1.0:
+        arr = np.array(img.convert('HSV'), dtype=np.float32)
+        arr[..., 0] = (arr[..., 0] + hue_shift / 360.0 * 255.0) % 256.0
+        arr[..., 1] = np.clip(arr[..., 1] * saturation, 0, 255)
+        arr[..., 2] = np.clip(arr[..., 2] * value_adj, 0, 255)
+        img = Image.fromarray(arr.astype(np.uint8), 'HSV').convert('RGB')
+    if r_gain != 1.0 or g_gain != 1.0 or b_gain != 1.0:
+        arr = np.array(img, dtype=np.float32)
+        arr[..., 0] = np.clip(arr[..., 0] * r_gain, 0, 255)
+        arr[..., 1] = np.clip(arr[..., 1] * g_gain, 0, 255)
+        arr[..., 2] = np.clip(arr[..., 2] * b_gain, 0, 255)
+        img = Image.fromarray(arr.astype(np.uint8))
+    return img
 
 
 def ensure_dithered_original(base):
@@ -323,34 +375,85 @@ def _find_original(base):
 
 
 def convert_image(src_path, base):
-    """Convert an uploaded image to 800×480 landscape + portrait BMPs and bins."""
+    """Convert an uploaded image to 800×480 landscape + portrait BMPs and bins.
+
+    If non-destructive edits are saved in image_edits for this base, the new
+    pipeline is used (explicit crop rect + colour adjustments).  Otherwise the
+    original offset-based crop path is used verbatim so output is byte-identical
+    to the pre-editor behaviour.
+    """
     try:
         img = ImageOps.exif_transpose(Image.open(src_path)).convert('RGB')
         w, h = img.size
-        crops  = load_crops()
-        offsets = crops.get(base, {"l": 0.5, "p": 0.5})
-        ol, op = offsets.get("l", 0.5), offsets.get("p", 0.5)
+        edits = get_image_edits(base)
 
-        # Landscape crop → 800×480
-        tl = 5.0 / 3.0
-        if w / h <= tl:
-            wc, hc = w, int(w / tl); xc, yc = 0, int(ol * (h - hc))
-        else:
-            hc, wc = h, int(h * tl); yc, xc = 0, int(0.5 * (w - wc))
-        land = img.crop((xc, yc, xc + wc, yc + hc)).resize((800, 480), Image.Resampling.LANCZOS)
-        Image.fromarray(dither_floyd_steinberg(np.array(land, dtype=np.float32), PALETTE)
-                        ).save(os.path.join(IMAGES_DIR, base + LANDSCAPE_SUFFIX), format='BMP')
+        if edits and edits.get('crop_l_w') is not None:
+            # ---- New path: explicit crop rect + colour adjustments ----
+            bg = edits.get('bg_color', '#ffffff') or '#ffffff'
+            hue_s  = float(edits.get('hue_shift',  0) or 0)
+            sat    = float(edits.get('saturation',  1) or 1)
+            val_a  = float(edits.get('value_adj',   1) or 1)
+            r_gain = float(edits.get('r_gain',      1) or 1)
+            g_gain = float(edits.get('g_gain',      1) or 1)
+            b_gain = float(edits.get('b_gain',      1) or 1)
 
-        # Portrait crop → 480×800 (rotated 270°)
-        tp = 3.0 / 5.0
-        if w / h >= tp:
-            hc, wc = h, int(h * tp); yc, xc = 0, int(op * (w - wc))
+            # Landscape: crop → outfill → resize 800×480 → colour adjust → dither
+            land = _crop_with_outfill(img, edits['crop_l_x'], edits['crop_l_y'],
+                                      edits['crop_l_w'], edits['crop_l_h'], bg)
+            land = land.resize((800, 480), Image.Resampling.LANCZOS)
+            land = apply_color_adjustments(land, hue_s, sat, val_a, r_gain, g_gain, b_gain)
+            Image.fromarray(dither_floyd_steinberg(np.array(land, dtype=np.float32), PALETTE)
+                            ).save(os.path.join(IMAGES_DIR, base + LANDSCAPE_SUFFIX), format='BMP')
+
+            # Portrait: crop → outfill → resize 480×800 → colour adjust → dither → rotate
+            if edits.get('crop_p_w') is not None:
+                port = _crop_with_outfill(img, edits['crop_p_x'], edits['crop_p_y'],
+                                          edits['crop_p_w'], edits['crop_p_h'], bg)
+            else:
+                # Fall back to legacy portrait crop if portrait rect not set
+                crops   = load_crops()
+                offsets = crops.get(base, {"l": 0.5, "p": 0.5})
+                op = offsets.get("p", 0.5)
+                tp = 3.0 / 5.0
+                if w / h >= tp:
+                    hc, wc = h, int(h * tp); yc, xc = 0, int(op * (w - wc))
+                else:
+                    wc, hc = w, int(w / tp); xc, yc = 0, int(0.5 * (h - hc))
+                port = img.crop((xc, yc, xc + wc, yc + hc))
+            port = port.resize((480, 800), Image.Resampling.LANCZOS)
+            port = apply_color_adjustments(port, hue_s, sat, val_a, r_gain, g_gain, b_gain)
+            Image.fromarray(dither_floyd_steinberg(np.array(port, dtype=np.float32), PALETTE)
+                            ).rotate(270, expand=True).save(
+                                os.path.join(IMAGES_DIR, base + PORTRAIT_SUFFIX), format='BMP')
+
         else:
-            wc, hc = w, int(w / tp); xc, yc = 0, int(0.5 * (h - hc))
-        port = img.crop((xc, yc, xc + wc, yc + hc)).resize((480, 800), Image.Resampling.LANCZOS)
-        Image.fromarray(dither_floyd_steinberg(np.array(port, dtype=np.float32), PALETTE)
-                        ).rotate(270, expand=True).save(
-                            os.path.join(IMAGES_DIR, base + PORTRAIT_SUFFIX), format='BMP')
+            # ---- Legacy path: offset-based crop, no colour adjustments ----
+            # This branch is verbatim-identical to the pre-editor code so that
+            # existing images without edits produce byte-identical output.
+            crops  = load_crops()
+            offsets = crops.get(base, {"l": 0.5, "p": 0.5})
+            ol, op = offsets.get("l", 0.5), offsets.get("p", 0.5)
+
+            # Landscape crop → 800×480
+            tl = 5.0 / 3.0
+            if w / h <= tl:
+                wc, hc = w, int(w / tl); xc, yc = 0, int(ol * (h - hc))
+            else:
+                hc, wc = h, int(h * tl); yc, xc = 0, int(0.5 * (w - wc))
+            land = img.crop((xc, yc, xc + wc, yc + hc)).resize((800, 480), Image.Resampling.LANCZOS)
+            Image.fromarray(dither_floyd_steinberg(np.array(land, dtype=np.float32), PALETTE)
+                            ).save(os.path.join(IMAGES_DIR, base + LANDSCAPE_SUFFIX), format='BMP')
+
+            # Portrait crop → 480×800 (rotated 270°)
+            tp = 3.0 / 5.0
+            if w / h >= tp:
+                hc, wc = h, int(h * tp); yc, xc = 0, int(op * (w - wc))
+            else:
+                wc, hc = w, int(w / tp); xc, yc = 0, int(0.5 * (h - hc))
+            port = img.crop((xc, yc, xc + wc, yc + hc)).resize((480, 800), Image.Resampling.LANCZOS)
+            Image.fromarray(dither_floyd_steinberg(np.array(port, dtype=np.float32), PALETTE)
+                            ).rotate(270, expand=True).save(
+                                os.path.join(IMAGES_DIR, base + PORTRAIT_SUFFIX), format='BMP')
 
         # Invalidate old bin files then regenerate
         for sfx in ('_l_u.bin', '_l_f.bin', '_p_u.bin', '_p_f.bin', '_l.bin', '_p.bin'):
@@ -385,6 +488,15 @@ def convert_image_13in3(src_path, base):
         offsets = crops.get(base, {"l": 0.5, "p": 0.5})
         ol, op  = offsets.get("l", 0.5), offsets.get("p", 0.5)
 
+        # Colour adjustments (applied after resize, before dither; legacy crop geometry unchanged)
+        edits  = get_image_edits(base)
+        hue_s  = float(edits['hue_shift']  or 0) if edits else 0
+        sat    = float(edits['saturation'] or 1) if edits else 1.0
+        val_a  = float(edits['value_adj']  or 1) if edits else 1.0
+        r_gain = float(edits['r_gain']     or 1) if edits else 1.0
+        g_gain = float(edits['g_gain']     or 1) if edits else 1.0
+        b_gain = float(edits['b_gain']     or 1) if edits else 1.0
+
         # Landscape crop → 1600×1200, then rotate 90° → 1200×1600 on panel
         tl = 4.0 / 3.0  # 1600:1200
         if w / h <= tl:
@@ -392,6 +504,7 @@ def convert_image_13in3(src_path, base):
         else:
             hc, wc = h, int(h * tl); yc, xc = 0, int(0.5 * (w - wc))
         land = img.crop((xc, yc, xc + wc, yc + hc)).resize((1600, 1200), Image.Resampling.LANCZOS)
+        land = apply_color_adjustments(land, hue_s, sat, val_a, r_gain, g_gain, b_gain)
         # Rotate 90° → becomes 1200×1600 (portrait), which is the panel's native orientation
         land_panel = land.rotate(90, expand=True)
         Image.fromarray(dither_floyd_steinberg(np.array(land_panel, dtype=np.float32), PALETTE)
@@ -404,6 +517,7 @@ def convert_image_13in3(src_path, base):
         else:
             wc, hc = w, int(w / tp); xc, yc = 0, int(0.5 * (h - hc))
         port = img.crop((xc, yc, xc + wc, yc + hc)).resize((1200, 1600), Image.Resampling.LANCZOS)
+        port = apply_color_adjustments(port, hue_s, sat, val_a, r_gain, g_gain, b_gain)
         Image.fromarray(dither_floyd_steinberg(np.array(port, dtype=np.float32), PALETTE)
                         ).save(os.path.join(IMAGES_DIR, base + infix + '_p.bmp'), format='BMP')
 
