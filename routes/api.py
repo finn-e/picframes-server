@@ -30,7 +30,7 @@ from db import (
 from image import (ensure_bin_files, ensure_bin_files_for_screen,
                    screen_size_for_profile, _artifact_infix,
                    ensure_entry_bin_files, entry_artifact_prefix,
-                   normalize_device_type, _DEFAULT_SCREEN)
+                   normalize_device_type, DEVICE_TYPE_ALIASES, _DEFAULT_SCREEN)
 
 logger = logging.getLogger(__name__)
 
@@ -322,7 +322,18 @@ def _get_update_url(hw_profile, current_version):
             try: return tuple(int(x) for x in v.split('.')[:3])
             except Exception: return (0, 0, 0)
         if tag and pv(tag) > pv(current_version):
-            return _github_cache['assets'].get(hw_profile)
+            assets = _github_cache['assets']
+            url = assets.get(hw_profile)
+            if url is None:
+                # Release zips are named after the firmware repo's board dirs
+                # (old names). A device reporting a canonical name still needs
+                # to match those assets — try every alias of this profile.
+                canonical = normalize_device_type(hw_profile)
+                for old, new in DEVICE_TYPE_ALIASES.items():
+                    if new == canonical:
+                        url = assets.get(old)
+                        if url: break
+            return url
     except Exception as e:
         logger.error(f"Error checking GitHub releases: {e}")
     return None

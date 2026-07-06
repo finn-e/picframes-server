@@ -250,3 +250,25 @@ def test_old_firmware_no_type_uses_default_resolution(logged_in):
     assert r.status_code == 200
     # Playlist should be locked to 800x480
     assert db.get_playlist_resolution(pid) == '800x480'
+
+
+# ------------------------------------------------------------------------------
+# OTA update asset lookup: release zips are named after the OLD board dirs, so
+# canonical hw_profiles must fall back to their alias names (routes/api.py
+# _get_update_url).
+# ------------------------------------------------------------------------------
+
+def test_update_url_falls_back_to_alias_asset_names(monkeypatch):
+    import routes.api as api_mod
+    monkeypatch.setitem(api_mod._github_cache, 'tag', '9.9.9')
+    monkeypatch.setitem(api_mod._github_cache, 'assets', {
+        'ESP32-S3-PhotoPainter': 'http://example/pp.zip',
+        'XIAO-EE04-7in3': 'http://example/xiao.zip',
+    })
+    # no_github autouse fixture already stubs _update_github_cache to a no-op
+    assert api_mod._get_update_url('Waveshare-PhotoPainter-7in3', '0.1.0') == 'http://example/pp.zip'
+    assert api_mod._get_update_url('Seeed-EE04-Spectra6-7in3', '0.1.0') == 'http://example/xiao.zip'
+    # old names still resolve directly
+    assert api_mod._get_update_url('XIAO-EE04-7in3', '0.1.0') == 'http://example/xiao.zip'
+    # up-to-date firmware gets nothing
+    assert api_mod._get_update_url('XIAO-EE04-7in3', '9.9.9') is None
