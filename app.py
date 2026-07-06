@@ -14,7 +14,11 @@ from db import init_db
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Informational fallback only — CI computes the real version from commit history
+# (paulhatch/semantic-version) and injects it via the SERVER_VERSION_OVERRIDE env
+# var (Docker build ARG → ENV). Manual bumps here are no longer needed for deploys.
 SERVER_VERSION = "0.21.0"
+EFFECTIVE_SERVER_VERSION = os.environ.get('SERVER_VERSION_OVERRIDE') or SERVER_VERSION
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin')
 
 
@@ -22,7 +26,7 @@ def create_app():
     app = Flask(__name__, template_folder='templates')
     app.secret_key           = os.environ.get('SECRET_KEY', 'picframes_secret_session_key_12345')
     app.config['ADMIN_PASSWORD'] = ADMIN_PASSWORD
-    app.config['SERVER_VERSION'] = SERVER_VERSION
+    app.config['SERVER_VERSION'] = EFFECTIVE_SERVER_VERSION
 
     # Auth gate — runs before every request
     @app.before_request

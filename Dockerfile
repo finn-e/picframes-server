@@ -22,6 +22,11 @@ COPY converters/ ./converters/
 # Expose server port
 EXPOSE 8080
 
+# CI-computed semver injected at build time; app.py falls back to its
+# hardcoded SERVER_VERSION when this is empty (e.g. local builds).
+ARG SERVER_VERSION_OVERRIDE=""
+ENV SERVER_VERSION_OVERRIDE=${SERVER_VERSION_OVERRIDE}
+
 # Environment variables
 ENV PORT=8080
 ENV SHARE_DIR=/share
