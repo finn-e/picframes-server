@@ -5,9 +5,11 @@
 import os
 import json
 import logging
+import re
 import threading
 import sqlite3
 import time as _time
+import uuid as _uuid_mod
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +134,8 @@ def init_db():
     c.execute("""CREATE INDEX IF NOT EXISTS idx_battery_mac_ts
         ON battery_history (mac, ts)""")
 
-    # Non-destructive image edit params (crop rects + colour adjustments)
+    # Non-destructive image edit params — per base (legacy; obsoleted by playlist_entries).
+    # Kept in DB for rollback; new code writes per-entry edits to playlist_entries instead.
     c.execute("""CREATE TABLE IF NOT EXISTS image_edits (
         base      TEXT PRIMARY KEY,
         crop_l_x  REAL, crop_l_y REAL, crop_l_w REAL, crop_l_h REAL,
@@ -145,6 +148,43 @@ def init_db():
         b_gain     REAL DEFAULT 1,
         bg_color   TEXT DEFAULT '#ffffff'
     )""")
+
+    # Per-image identity table: uuid PK, original filename, owner scoping
+    c.execute("""CREATE TABLE IF NOT EXISTS images (
+        uuid              TEXT PRIMARY KEY,
+        original_filename TEXT NOT NULL,
+        owner_id          INTEGER DEFAULT 1
+    )""")
+
+    # First-class playlist entries: per-entry title (= bin caption) + per-entry editor settings
+    c.execute("""CREATE TABLE IF NOT EXISTS playlist_entries (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        playlist_id INTEGER NOT NULL,
+        image_uuid  TEXT NOT NULL,
+        position    INTEGER DEFAULT 0,
+        title       TEXT NOT NULL DEFAULT '',
+        crop_l_x REAL, crop_l_y REAL, crop_l_w REAL, crop_l_h REAL,
+        crop_p_x REAL, crop_p_y REAL, crop_p_w REAL, crop_p_h REAL,
+        hue_shift  REAL DEFAULT 0,
+        saturation REAL DEFAULT 1,
+        value_adj  REAL DEFAULT 1,
+        r_gain     REAL DEFAULT 1,
+        g_gain     REAL DEFAULT 1,
+        b_gain     REAL DEFAULT 1,
+        bg_color   TEXT DEFAULT '#ffffff',
+        rotate     INTEGER DEFAULT 0,
+        enabled_l  INTEGER DEFAULT 1,
+        enabled_p  INTEGER DEFAULT 1,
+        FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
+        FOREIGN KEY (image_uuid)  REFERENCES images(uuid)
+    )""")
+
+    # Migration guard: add rotate column if missing (table already exists in live DB)
+    try:
+        c.execute("ALTER TABLE image_edits ADD COLUMN rotate INTEGER DEFAULT 0")
+        conn.commit()
+    except Exception:
+        pass  # column already exists
 
     conn.commit()
 
@@ -159,6 +199,11 @@ def init_db():
     c.execute("SELECT COUNT(*) FROM global_settings WHERE key='playlists_migrated'")
     if c.fetchone()[0] == 0:
         _migrate_playlists(conn, c)
+
+    # One-time migration: backfill images table + playlist_entries from playlist_images
+    c.execute("SELECT COUNT(*) FROM global_settings WHERE key='entries_migration_done'")
+    if c.fetchone()[0] == 0:
+        _migrate_entries(conn, c)
 
     conn.close()
 
@@ -648,8 +693,9 @@ def save_image_edits(base, params):
         conn.execute("""INSERT OR REPLACE INTO image_edits
             (base, crop_l_x, crop_l_y, crop_l_w, crop_l_h,
              crop_p_x, crop_p_y, crop_p_w, crop_p_h,
-             hue_shift, saturation, value_adj, r_gain, g_gain, b_gain, bg_color)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+             hue_shift, saturation, value_adj, r_gain, g_gain, b_gain, bg_color,
+             rotate)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
             base,
             crop_l.get('x'), crop_l.get('y'), crop_l.get('w'), crop_l.get('h'),
             crop_p.get('x'), crop_p.get('y'), crop_p.get('w'), crop_p.get('h'),
@@ -657,6 +703,7 @@ def save_image_edits(base, params):
             params.get('value_adj', 1), params.get('r_gain', 1),
             params.get('g_gain', 1), params.get('b_gain', 1),
             params.get('bg_color', '#ffffff'),
+            int(params.get('rotate', 0) or 0) % 360,
         ))
         conn.commit(); conn.close()
     except Exception as e:
@@ -930,3 +977,403 @@ def get_unified_index():
         if f["p"] and os.path.exists(os.path.join(IMAGES_DIR, portrait_file(base))):
             result.append(portrait_file(base))
     return result
+
+
+# ---------------------------------------------------------------------------
+# Images table (per-image identity with UUID)
+# ---------------------------------------------------------------------------
+
+def sanitize_title(title, existing_titles=None):
+    """Sanitize an entry title: whitespace→underscore, strip non-[A-Za-z0-9_-],
+    ensure non-empty, ensure unique within a set if *existing_titles* is given."""
+    t = re.sub(r'\s+', '_', str(title).strip())
+    t = re.sub(r'[^A-Za-z0-9_\-]', '', t)
+    if not t:
+        t = 'untitled'
+    if existing_titles is None:
+        return t
+    if t not in existing_titles:
+        return t
+    base_t = t
+    n = 2
+    while t in existing_titles:
+        t = f'{base_t}_{n}'
+        n += 1
+    return t
+
+
+def create_image(original_filename, owner_id=None):
+    """Create an images row; returns the new uuid string."""
+    owner_id = _get_owner_id(owner_id)
+    new_uuid = _uuid_mod.uuid4().hex
+    try:
+        conn = get_db()
+        conn.execute("INSERT OR IGNORE INTO images (uuid, original_filename, owner_id) VALUES (?,?,?)",
+                     (new_uuid, original_filename, owner_id))
+        conn.commit(); conn.close()
+        return new_uuid
+    except Exception as e:
+        logger.error(f"create_image({original_filename}): {e}")
+        return None
+
+
+def get_image_by_uuid(uuid):
+    try:
+        conn = get_db()
+        row = conn.execute("SELECT * FROM images WHERE uuid=?", (uuid,)).fetchone()
+        conn.close()
+        return dict(row) if row else None
+    except Exception as e:
+        logger.error(f"get_image_by_uuid({uuid}): {e}")
+        return None
+
+
+def get_image_by_filename(filename, owner_id=None):
+    """Look up an image by its exact original_filename."""
+    try:
+        conn = get_db()
+        if owner_id is not None:
+            row = conn.execute(
+                "SELECT * FROM images WHERE original_filename=? AND owner_id=?",
+                (filename, owner_id)).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT * FROM images WHERE original_filename=?", (filename,)).fetchone()
+        conn.close()
+        return dict(row) if row else None
+    except Exception as e:
+        logger.error(f"get_image_by_filename({filename}): {e}")
+        return None
+
+
+def get_image_by_base(base, owner_id=None):
+    """Find an images row whose original_filename stem matches *base*."""
+    try:
+        conn = get_db()
+        if owner_id is not None:
+            rows = conn.execute(
+                "SELECT * FROM images WHERE owner_id=?", (owner_id,)).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM images").fetchall()
+        conn.close()
+        for r in rows:
+            if os.path.splitext(r['original_filename'])[0] == base:
+                return dict(r)
+        return None
+    except Exception as e:
+        logger.error(f"get_image_by_base({base}): {e}")
+        return None
+
+
+def get_images_for_owner(owner_id=None):
+    owner_id = _get_owner_id(owner_id)
+    try:
+        conn = get_db()
+        rows = conn.execute("SELECT * FROM images WHERE owner_id=?", (owner_id,)).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        logger.error(f"get_images_for_owner: {e}")
+        return []
+
+
+def rename_image_record(uuid, new_filename):
+    """Update original_filename for an images row (does NOT rename the file)."""
+    try:
+        conn = get_db()
+        conn.execute("UPDATE images SET original_filename=? WHERE uuid=?", (new_filename, uuid))
+        conn.commit(); conn.close()
+    except Exception as e:
+        logger.error(f"rename_image_record({uuid}): {e}")
+
+
+def delete_image_record(uuid):
+    try:
+        conn = get_db()
+        conn.execute("DELETE FROM images WHERE uuid=?", (uuid,))
+        conn.commit(); conn.close()
+    except Exception as e:
+        logger.error(f"delete_image_record({uuid}): {e}")
+
+
+def get_or_create_image(base, owner_id=None):
+    """Return uuid for *base*, creating an images row if needed."""
+    owner_id = _get_owner_id(owner_id)
+    img = get_image_by_base(base, owner_id)
+    if img:
+        return img['uuid']
+    # Find original filename on disk
+    for f in os.listdir(ORIGINALS_DIR):
+        if os.path.splitext(f)[0] == base and \
+                os.path.splitext(f)[1].lower() in ALLOWED_EXTENSIONS:
+            return create_image(f, owner_id)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Playlist entries (per-entry identity, title, and editor settings)
+# ---------------------------------------------------------------------------
+
+def get_playlist_entries(playlist_id):
+    """Return all entries for a playlist ordered by position, as list of dicts."""
+    try:
+        conn = get_db()
+        rows = conn.execute(
+            "SELECT * FROM playlist_entries WHERE playlist_id=? ORDER BY position",
+            (int(playlist_id),)).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        logger.error(f"get_playlist_entries({playlist_id}): {e}")
+        return []
+
+
+def get_playlist_entry(entry_id):
+    try:
+        conn = get_db()
+        row = conn.execute("SELECT * FROM playlist_entries WHERE id=?", (int(entry_id),)).fetchone()
+        conn.close()
+        return dict(row) if row else None
+    except Exception as e:
+        logger.error(f"get_playlist_entry({entry_id}): {e}")
+        return None
+
+
+def add_playlist_entry(playlist_id, image_uuid, title=None):
+    """Insert a new playlist_entry; returns the new entry_id."""
+    try:
+        conn = get_db()
+        # Compute unique title within playlist
+        existing_titles = {r['title'] for r in conn.execute(
+            "SELECT title FROM playlist_entries WHERE playlist_id=?", (int(playlist_id),)).fetchall()}
+        base_title = title or 'untitled'
+        safe_title = sanitize_title(base_title, existing_titles)
+        row = conn.execute(
+            "SELECT COALESCE(MAX(position),0)+1 AS next FROM playlist_entries WHERE playlist_id=?",
+            (int(playlist_id),)).fetchone()
+        next_pos = row['next'] if row else 0
+        c = conn.execute(
+            """INSERT INTO playlist_entries
+               (playlist_id, image_uuid, position, title, enabled_l, enabled_p)
+               VALUES (?,?,?,?,1,1)""",
+            (int(playlist_id), image_uuid, next_pos, safe_title))
+        entry_id = c.lastrowid
+        conn.commit(); conn.close()
+        return entry_id
+    except Exception as e:
+        logger.error(f"add_playlist_entry({playlist_id}): {e}")
+        return None
+
+
+def update_playlist_entry(entry_id, **kwargs):
+    """Update one or more columns on a playlist_entries row."""
+    allowed = {
+        'position', 'title', 'enabled_l', 'enabled_p', 'rotate',
+        'crop_l_x', 'crop_l_y', 'crop_l_w', 'crop_l_h',
+        'crop_p_x', 'crop_p_y', 'crop_p_w', 'crop_p_h',
+        'hue_shift', 'saturation', 'value_adj', 'r_gain', 'g_gain', 'b_gain', 'bg_color',
+    }
+    fields = {k: v for k, v in kwargs.items() if k in allowed}
+    if not fields:
+        return
+    try:
+        conn = get_db()
+        for col, val in fields.items():
+            conn.execute(f"UPDATE playlist_entries SET {col}=? WHERE id=?", (val, int(entry_id)))
+        conn.commit(); conn.close()
+    except Exception as e:
+        logger.error(f"update_playlist_entry({entry_id}): {e}")
+
+
+def rename_playlist_entry(entry_id, new_title):
+    """Rename a playlist entry; sanitizes and ensures uniqueness within its playlist."""
+    try:
+        conn = get_db()
+        row = conn.execute("SELECT playlist_id FROM playlist_entries WHERE id=?",
+                           (int(entry_id),)).fetchone()
+        if not row:
+            conn.close(); return None
+        pid = row['playlist_id']
+        existing_titles = {r['title'] for r in conn.execute(
+            "SELECT title FROM playlist_entries WHERE playlist_id=? AND id!=?",
+            (pid, int(entry_id))).fetchall()}
+        safe_title = sanitize_title(new_title, existing_titles)
+        conn.execute("UPDATE playlist_entries SET title=? WHERE id=?", (safe_title, int(entry_id)))
+        conn.commit(); conn.close()
+        return safe_title
+    except Exception as e:
+        logger.error(f"rename_playlist_entry({entry_id}): {e}")
+        return None
+
+
+def remove_playlist_entry(entry_id):
+    try:
+        conn = get_db()
+        conn.execute("DELETE FROM playlist_entries WHERE id=?", (int(entry_id),))
+        conn.commit(); conn.close()
+    except Exception as e:
+        logger.error(f"remove_playlist_entry({entry_id}): {e}")
+
+
+def reorder_playlist_entries(playlist_id, entry_ids):
+    """Set position of each entry in entry_ids list."""
+    try:
+        conn = get_db()
+        for i, eid in enumerate(entry_ids):
+            conn.execute("UPDATE playlist_entries SET position=? WHERE id=? AND playlist_id=?",
+                         (i, int(eid), int(playlist_id)))
+        conn.commit(); conn.close()
+    except Exception as e:
+        logger.error(f"reorder_playlist_entries({playlist_id}): {e}")
+
+
+def save_playlist_entry_edits(entry_id, params):
+    """Persist non-destructive edit params into a playlist_entries row."""
+    crop_l = params.get('crop_l') or {}
+    crop_p = params.get('crop_p') or {}
+    update_playlist_entry(entry_id,
+        crop_l_x=crop_l.get('x'), crop_l_y=crop_l.get('y'),
+        crop_l_w=crop_l.get('w'), crop_l_h=crop_l.get('h'),
+        crop_p_x=crop_p.get('x'), crop_p_y=crop_p.get('y'),
+        crop_p_w=crop_p.get('w'), crop_p_h=crop_p.get('h'),
+        hue_shift=float(params.get('hue_shift', 0) or 0),
+        saturation=float(params.get('saturation', 1) or 1),
+        value_adj=float(params.get('value_adj', 1) or 1),
+        r_gain=float(params.get('r_gain', 1) or 1),
+        g_gain=float(params.get('g_gain', 1) or 1),
+        b_gain=float(params.get('b_gain', 1) or 1),
+        bg_color=params.get('bg_color', '#ffffff') or '#ffffff',
+        rotate=int(params.get('rotate', 0) or 0) % 360,
+    )
+
+
+def get_device_active_entries(mac, orientation):
+    """Return ordered list of enabled playlist_entries for *mac*'s playlist.
+
+    Entries are filtered by enabled_l/enabled_p for the given orientation.
+    Returns [] if the device has no playlist assigned.
+    Each entry dict includes 'original_filename' from the images join.
+    """
+    pid = get_device_playlist_id(mac)
+    if pid is None:
+        return []
+    orient_col = 'enabled_l' if orientation == 'landscape' else 'enabled_p'
+    try:
+        conn = get_db()
+        rows = conn.execute(
+            f"""SELECT pe.*, i.original_filename
+                FROM playlist_entries pe
+                JOIN images i ON pe.image_uuid = i.uuid
+                WHERE pe.playlist_id=? AND pe.{orient_col}=1
+                ORDER BY pe.position""",
+            (int(pid),)).fetchall()
+        conn.close()
+        result = []
+        for r in rows:
+            if os.path.exists(os.path.join(ORIGINALS_DIR, r['original_filename'])):
+                result.append(dict(r))
+        return result
+    except Exception as e:
+        logger.error(f"get_device_active_entries({mac}): {e}")
+        return []
+
+
+def get_playlists_for_entry_image(image_uuid):
+    """Return list of playlist_ids that contain entries for this image_uuid."""
+    try:
+        conn = get_db()
+        rows = conn.execute(
+            "SELECT DISTINCT playlist_id FROM playlist_entries WHERE image_uuid=?",
+            (image_uuid,)).fetchall()
+        conn.close()
+        return [r['playlist_id'] for r in rows]
+    except Exception as e:
+        logger.error(f"get_playlists_for_entry_image({image_uuid}): {e}")
+        return []
+
+
+# ---------------------------------------------------------------------------
+# entries migration (one-time)
+# ---------------------------------------------------------------------------
+
+def _migrate_entries(conn, c):
+    """Backfill images table from ORIGINALS_DIR/image_order, and create
+    playlist_entries rows from existing playlist_images rows.
+    Idempotent — guarded by global_settings key 'entries_migration_done'.
+    """
+    logger.info("Migrating to images/playlist_entries tables…")
+
+    # Build map base → original_filename from ORIGINALS_DIR
+    orig_map = {}
+    try:
+        for f in os.listdir(ORIGINALS_DIR):
+            base = os.path.splitext(f)[0]
+            ext  = os.path.splitext(f)[1].lower()
+            if ext in ALLOWED_EXTENSIONS:
+                orig_map[base] = f
+    except Exception as e:
+        logger.error(f"_migrate_entries: cannot scan ORIGINALS_DIR: {e}")
+
+    # Build base → owner_id from image_order
+    owner_map = {}
+    for row in c.execute("SELECT base, owner_id FROM image_order").fetchall():
+        owner_map[row['base']] = row['owner_id']
+
+    # Create images rows for every known base
+    base_to_uuid = {}
+    for base, orig_fn in orig_map.items():
+        existing = c.execute(
+            "SELECT uuid FROM images WHERE original_filename=?", (orig_fn,)).fetchone()
+        if existing:
+            base_to_uuid[base] = existing['uuid']
+        else:
+            new_uuid = _uuid_mod.uuid4().hex
+            c.execute("INSERT OR IGNORE INTO images (uuid, original_filename, owner_id) VALUES (?,?,?)",
+                      (new_uuid, orig_fn, owner_map.get(base, 1)))
+            base_to_uuid[base] = new_uuid
+
+    # Convert playlist_images → playlist_entries (skip if already migrated)
+    for pi_row in c.execute(
+            "SELECT playlist_id, base, sort_order FROM playlist_images ORDER BY playlist_id, sort_order"
+            ).fetchall():
+        pid  = pi_row['playlist_id']
+        base = pi_row['base']
+        pos  = pi_row['sort_order']
+        if base not in base_to_uuid:
+            logger.warning(f"_migrate_entries: no uuid for base={base!r}, skipping entry")
+            continue
+        image_uuid = base_to_uuid[base]
+        # Skip if entry already exists (safe re-run)
+        if c.execute("SELECT 1 FROM playlist_entries WHERE playlist_id=? AND image_uuid=?",
+                     (pid, image_uuid)).fetchone():
+            continue
+        # Compute safe title (unique within playlist)
+        existing_titles = {r['title'] for r in c.execute(
+            "SELECT title FROM playlist_entries WHERE playlist_id=?", (pid,)).fetchall()}
+        title = sanitize_title(base, existing_titles)
+        # Carry over edits from image_edits if present
+        edits = c.execute("SELECT * FROM image_edits WHERE base=?", (base,)).fetchone()
+        if edits and edits['crop_l_w'] is not None:
+            c.execute("""INSERT INTO playlist_entries
+                (playlist_id, image_uuid, position, title,
+                 crop_l_x, crop_l_y, crop_l_w, crop_l_h,
+                 crop_p_x, crop_p_y, crop_p_w, crop_p_h,
+                 hue_shift, saturation, value_adj, r_gain, g_gain, b_gain, bg_color, rotate,
+                 enabled_l, enabled_p)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,1)""",
+                (pid, image_uuid, pos, title,
+                 edits['crop_l_x'], edits['crop_l_y'], edits['crop_l_w'], edits['crop_l_h'],
+                 edits['crop_p_x'], edits['crop_p_y'], edits['crop_p_w'], edits['crop_p_h'],
+                 edits['hue_shift'] or 0, edits['saturation'] or 1, edits['value_adj'] or 1,
+                 edits['r_gain'] or 1, edits['g_gain'] or 1, edits['b_gain'] or 1,
+                 edits['bg_color'] or '#ffffff',
+                 int(edits['rotate'] or 0) if 'rotate' in edits.keys() else 0))
+        else:
+            c.execute("""INSERT INTO playlist_entries
+                (playlist_id, image_uuid, position, title, enabled_l, enabled_p)
+                VALUES (?,?,?,?,1,1)""",
+                (pid, image_uuid, pos, title))
+
+    c.execute("INSERT OR REPLACE INTO global_settings VALUES ('entries_migration_done','1')")
+    conn.commit()
+    logger.info("entries migration complete")

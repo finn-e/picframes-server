@@ -23,13 +23,21 @@ from db import (
     trigger_redownload, flags, ORIGINALS_DIR, IMAGES_DIR, ALLOWED_EXTENSIONS,
     LANDSCAPE_SUFFIX, PORTRAIT_SUFFIX,
     get_image_edits, save_image_edits,
+    # Per-entry data model
+    get_playlist_entry, get_playlist_entries,
+    add_playlist_entry, update_playlist_entry, remove_playlist_entry,
+    rename_playlist_entry, reorder_playlist_entries, save_playlist_entry_edits,
+    get_image_by_uuid, get_or_create_image, get_image_by_filename,
+    sanitize_title,
 )
 from image import (
     convert_image, ensure_artifacts_for_playlist,
     reconvert_all_intelligent, reconvert_for_playlist_screen,
-    delete_all_artifacts,
+    delete_all_artifacts, delete_entry_artifacts,
     apply_color_adjustments, dither_floyd_steinberg, PALETTE,
     get_screen_types_for_image, _DEFAULT_SCREEN, convert_image_for_screen,
+    convert_entry, ensure_entry_bin_files,
+    _default_landscape_crop_img, _default_portrait_crop_img, _crop_with_outfill,
 )
 
 logger = logging.getLogger(__name__)
@@ -187,13 +195,28 @@ def rename_image():
         crops[new_base] = crops.pop(old_base)
         save_crops(crops)
 
-    # Update playlist_images references
+    # Update playlist_images references (legacy table)
     try:
         conn = db.get_db()
         conn.execute("UPDATE playlist_images SET base=? WHERE base=?", (new_base, old_base))
         conn.commit(); conn.close()
     except Exception as e:
         logger.error(f"rename playlist_images: {e}")
+
+    # Update images table original_filename
+    try:
+        conn = db.get_db()
+        # Find the new filename on disk (ext may vary)
+        new_orig_fn = None
+        for f in os.listdir(ORIGINALS_DIR):
+            if os.path.splitext(f)[0] == new_base:
+                new_orig_fn = f; break
+        if new_orig_fn:
+            conn.execute("UPDATE images SET original_filename=? WHERE original_filename LIKE ?",
+                         (new_orig_fn, old_base + '.%'))
+        conn.commit(); conn.close()
+    except Exception as e:
+        logger.error(f"rename images table: {e}")
 
     trigger_redownload()
     return jsonify({'ok': True, 'new_base': new_base})
@@ -421,19 +444,40 @@ def playlist_add_image(pid):
     data = request.get_json() or {}
     base = data.get('base', '').strip()
     if not base: return jsonify({'ok': False, 'error': 'Missing base'}), 400
-    images = get_playlist_images(pid)
-    if len(images) >= 10:
+    entries = get_playlist_entries(pid)
+    if len(entries) >= 10:
         return jsonify({'ok': False, 'error': 'Playlist is full (maximum 10 images)'}), 400
+
+    # Ensure images row exists for this base
+    image_uuid = get_or_create_image(base)
+    if not image_uuid:
+        return jsonify({'ok': False, 'error': 'Original file not found'}), 404
+
+    # Create playlist_entry with default neutral settings; title defaults to base
+    entry_id = add_playlist_entry(pid, image_uuid, title=base)
+    if not entry_id:
+        return jsonify({'ok': False, 'error': 'Could not create entry'}), 500
+
+    # Also keep legacy playlist_images row for backward compat / rollback
     add_playlist_image(pid, base)
+
     # Optionally disable in general pool
     if data.get('disable_in_pool', True):
         enabled = load_enabled()
         f = flags(enabled, base); f['l'] = False; f['p'] = False
         enabled[base] = f; save_enabled(enabled)
-    # Trigger conversion for all screen types present in this playlist
-    ensure_artifacts_for_playlist(pid)
-    trigger_redownload()
-    return jsonify({'ok': True})
+
+    # Background: generate entry artifacts + old screen-typed artifacts
+    def _bg_convert(eid):
+        try:
+            convert_entry(eid)
+            ensure_artifacts_for_playlist(pid)
+            trigger_redownload()
+        except Exception as e:
+            logger.error(f"playlist_add_image bg({eid}): {e}")
+
+    threading.Thread(target=_bg_convert, args=(entry_id,), daemon=True).start()
+    return jsonify({'ok': True, 'entry_id': entry_id})
 
 
 @admin_bp.route('/playlists/<int:pid>/remove_image', methods=['POST'])
@@ -443,6 +487,49 @@ def playlist_remove_image(pid):
     if not base: return jsonify({'ok': False, 'error': 'Missing base'}), 400
     remove_playlist_image(pid, base)
     trigger_redownload()
+    return jsonify({'ok': True})
+
+
+@admin_bp.route('/playlists/<int:pid>/remove_entry/<int:entry_id>', methods=['POST'])
+def playlist_remove_entry(pid, entry_id):
+    entry = get_playlist_entry(entry_id)
+    if not entry or entry['playlist_id'] != pid:
+        return jsonify({'ok': False, 'error': 'Entry not found'}), 404
+    delete_entry_artifacts(entry_id)
+    remove_playlist_entry(entry_id)
+    trigger_redownload()
+    return jsonify({'ok': True})
+
+
+@admin_bp.route('/playlists/<int:pid>/rename_entry/<int:entry_id>', methods=['POST'])
+def playlist_rename_entry(pid, entry_id):
+    data = request.get_json() or {}
+    new_title = data.get('title', '').strip()
+    if not new_title:
+        return jsonify({'ok': False, 'error': 'Empty title'}), 400
+    entry = get_playlist_entry(entry_id)
+    if not entry or entry['playlist_id'] != pid:
+        return jsonify({'ok': False, 'error': 'Entry not found'}), 404
+    safe_title = rename_playlist_entry(entry_id, new_title)
+    if safe_title is None:
+        return jsonify({'ok': False, 'error': 'Rename failed'}), 500
+    # Trigger reconversion (bin arcname changes with title)
+    def _bg(eid):
+        try:
+            delete_entry_artifacts(eid)
+            convert_entry(eid)
+            trigger_redownload()
+        except Exception as e:
+            logger.error(f"rename_entry bg({eid}): {e}")
+    threading.Thread(target=_bg, args=(entry_id,), daemon=True).start()
+    return jsonify({'ok': True, 'title': safe_title})
+
+
+@admin_bp.route('/playlists/<int:pid>/reorder_entries', methods=['POST'])
+def playlist_reorder_entries(pid):
+    data      = request.get_json() or {}
+    entry_ids = data.get('entry_ids', [])
+    reorder_playlist_entries(pid, entry_ids)
     return jsonify({'ok': True})
 
 
@@ -515,7 +602,7 @@ def image_edit_get(base):
             'crop_l': None, 'crop_p': None,
             'hue_shift': 0, 'saturation': 1, 'value_adj': 1,
             'r_gain': 1, 'g_gain': 1, 'b_gain': 1,
-            'bg_color': '#ffffff',
+            'bg_color': '#ffffff', 'rotate': 0,
         })
     result = {
         'hue_shift': edits.get('hue_shift', 0) or 0,
@@ -525,6 +612,7 @@ def image_edit_get(base):
         'g_gain': edits.get('g_gain', 1) or 1,
         'b_gain': edits.get('b_gain', 1) or 1,
         'bg_color': edits.get('bg_color', '#ffffff') or '#ffffff',
+        'rotate': int(edits.get('rotate', 0) or 0),
         'crop_l': (
             {'x': edits['crop_l_x'], 'y': edits['crop_l_y'],
              'w': edits['crop_l_w'], 'h': edits['crop_l_h']}
@@ -568,6 +656,152 @@ def image_edit_save(base):
     return jsonify({'ok': True})
 
 
+@admin_bp.route('/entry-toggle-orient/<int:entry_id>', methods=['POST'])
+def entry_toggle_orient(entry_id):
+    """Toggle enabled_l or enabled_p for a playlist entry."""
+    data   = request.get_json() or {}
+    orient = data.get('orient')
+    val    = bool(data.get('enabled', True))
+    if orient not in ('l', 'p'):
+        return jsonify({'ok': False, 'error': 'Invalid orient'}), 400
+    col = 'enabled_l' if orient == 'l' else 'enabled_p'
+    update_playlist_entry(entry_id, **{col: 1 if val else 0})
+    trigger_redownload()
+    return jsonify({'ok': True})
+
+
+@admin_bp.route('/entry-edit/<int:entry_id>', methods=['GET'])
+def entry_edit_get(entry_id):
+    """Return saved edit params for a playlist entry, or defaults if neutral."""
+    entry = get_playlist_entry(entry_id)
+    if not entry:
+        return jsonify({'error': 'Not found'}), 404
+    result = {
+        'hue_shift':  float(entry.get('hue_shift',  0) or 0),
+        'saturation': float(entry.get('saturation',  1) or 1),
+        'value_adj':  float(entry.get('value_adj',   1) or 1),
+        'r_gain':     float(entry.get('r_gain',      1) or 1),
+        'g_gain':     float(entry.get('g_gain',      1) or 1),
+        'b_gain':     float(entry.get('b_gain',      1) or 1),
+        'bg_color':   entry.get('bg_color', '#ffffff') or '#ffffff',
+        'rotate':     int(entry.get('rotate', 0) or 0),
+        'crop_l': (
+            {'x': entry['crop_l_x'], 'y': entry['crop_l_y'],
+             'w': entry['crop_l_w'], 'h': entry['crop_l_h']}
+            if entry.get('crop_l_w') is not None else None
+        ),
+        'crop_p': (
+            {'x': entry['crop_p_x'], 'y': entry['crop_p_y'],
+             'w': entry['crop_p_w'], 'h': entry['crop_p_h']}
+            if entry.get('crop_p_w') is not None else None
+        ),
+    }
+    return jsonify(result)
+
+
+@admin_bp.route('/entry-edit/<int:entry_id>', methods=['POST'])
+def entry_edit_save(entry_id):
+    """Persist edit params for an entry and trigger background reconversion."""
+    entry = get_playlist_entry(entry_id)
+    if not entry:
+        return jsonify({'ok': False, 'error': 'Not found'}), 404
+    data = request.get_json() or {}
+    save_playlist_entry_edits(entry_id, data)
+
+    def _bg(eid):
+        try:
+            delete_entry_artifacts(eid)
+            convert_entry(eid)
+            trigger_redownload()
+        except Exception as e:
+            logger.error(f"entry_edit_save bg({eid}): {e}")
+
+    threading.Thread(target=_bg, args=(entry_id,), daemon=True).start()
+    return jsonify({'ok': True})
+
+
+@admin_bp.route('/entry-reconvert/<int:entry_id>', methods=['POST'])
+def entry_reconvert(entry_id):
+    """Delete and regenerate artifacts for a playlist entry."""
+    entry = get_playlist_entry(entry_id)
+    if not entry:
+        return jsonify({'ok': False, 'error': 'Not found'}), 404
+
+    def _bg(eid):
+        try:
+            delete_entry_artifacts(eid)
+            convert_entry(eid)
+            trigger_redownload()
+        except Exception as e:
+            logger.error(f"entry_reconvert bg({eid}): {e}")
+
+    threading.Thread(target=_bg, args=(entry_id,), daemon=True).start()
+    return jsonify({'ok': True})
+
+
+@admin_bp.route('/entry-preview/<int:entry_id>', methods=['POST'])
+def entry_preview(entry_id):
+    """Return a dithered preview PNG for a playlist entry using its current params."""
+    entry = get_playlist_entry(entry_id)
+    if not entry:
+        return '', 404
+    image = get_image_by_uuid(entry['image_uuid'])
+    if not image:
+        return '', 404
+    src_path = None
+    for f in os.listdir(ORIGINALS_DIR):
+        if f == image['original_filename']:
+            src_path = os.path.join(ORIGINALS_DIR, f); break
+    if not src_path:
+        return '', 404
+
+    data = request.get_json() or {}
+    try:
+        img = ImageOps.exif_transpose(Image.open(src_path)).convert('RGB')
+        rotate_deg = int(data.get('rotate', entry.get('rotate', 0) or 0)) % 360
+        if rotate_deg == 90:
+            img = img.transpose(Image.Transpose.ROTATE_90)
+        elif rotate_deg == 180:
+            img = img.transpose(Image.Transpose.ROTATE_180)
+        elif rotate_deg == 270:
+            img = img.transpose(Image.Transpose.ROTATE_270)
+
+        crop_orient = data.get('crop_orient')
+        crop_key = 'crop_l' if crop_orient != 'p' else 'crop_p'
+        crop = data.get(crop_key) or data.get('crop_l')
+        if crop and crop.get('w') and crop.get('h'):
+            w_img, h_img = img.size
+            cx = max(0, int(crop['x'])); cy = max(0, int(crop['y']))
+            cw = min(int(crop['w']), w_img - cx)
+            ch = min(int(crop['h']), h_img - cy)
+            if cw > 0 and ch > 0:
+                img = img.crop((cx, cy, cx + cw, cy + ch))
+
+        max_dim = 800
+        w_o, h_o = img.size
+        if max(w_o, h_o) > max_dim:
+            sc = max_dim / max(w_o, h_o)
+            img = img.resize((int(w_o * sc), int(h_o * sc)), Image.Resampling.LANCZOS)
+
+        img = apply_color_adjustments(
+            img,
+            hue_shift=float(data.get('hue_shift', entry.get('hue_shift', 0) or 0)),
+            saturation=float(data.get('saturation', entry.get('saturation', 1) or 1)),
+            value_adj=float(data.get('value_adj', entry.get('value_adj', 1) or 1)),
+            r_gain=float(data.get('r_gain', entry.get('r_gain', 1) or 1)),
+            g_gain=float(data.get('g_gain', entry.get('g_gain', 1) or 1)),
+            b_gain=float(data.get('b_gain', entry.get('b_gain', 1) or 1)),
+        )
+        dithered = dither_floyd_steinberg(np.array(img, dtype=np.float32), PALETTE)
+        buf = io.BytesIO()
+        Image.fromarray(dithered).save(buf, format='PNG')
+        buf.seek(0)
+        return Response(buf.read(), mimetype='image/png')
+    except Exception as e:
+        logger.error(f"entry_preview({entry_id}): {e}")
+        return '', 500
+
+
 @admin_bp.route('/image-preview/<base>', methods=['POST'])
 def image_preview(base):
     """Return a dithered preview PNG (full image, no crop) with current colour params applied."""
@@ -582,6 +816,29 @@ def image_preview(base):
 
     try:
         img = ImageOps.exif_transpose(Image.open(src_path)).convert('RGB')
+
+        # Apply rotation before everything else (same order as convert_image)
+        rotate_deg = int(data.get('rotate', 0) or 0) % 360
+        if rotate_deg == 90:
+            img = img.transpose(Image.Transpose.ROTATE_90)
+        elif rotate_deg == 180:
+            img = img.transpose(Image.Transpose.ROTATE_180)
+        elif rotate_deg == 270:
+            img = img.transpose(Image.Transpose.ROTATE_270)
+
+        # Apply crop if provided
+        crop_orient = data.get('crop_orient')  # 'l' or 'p' — used by preview button
+        crop_key = 'crop_l' if crop_orient != 'p' else 'crop_p'
+        crop = data.get(crop_key) or data.get('crop_l')
+        if crop and crop.get('w') and crop.get('h'):
+            w_img, h_img = img.size
+            cx, cy = int(crop['x']), int(crop['y'])
+            cw, ch = int(crop['w']), int(crop['h'])
+            cx, cy = max(0, cx), max(0, cy)
+            cw = min(cw, w_img - cx)
+            ch = min(ch, h_img - cy)
+            if cw > 0 and ch > 0:
+                img = img.crop((cx, cy, cx + cw, cy + ch))
 
         # Downscale to at most 800px on the long side for speed
         w_orig, h_orig = img.size

@@ -396,6 +396,15 @@ def convert_image(src_path, base):
             r_gain = float(edits.get('r_gain',      1) or 1)
             g_gain = float(edits.get('g_gain',      1) or 1)
             b_gain = float(edits.get('b_gain',      1) or 1)
+            rotate_deg = int(edits.get('rotate', 0) or 0) % 360
+
+            # Apply rotation before crop (crop coords are in rotated-image space)
+            if rotate_deg == 90:
+                img = img.transpose(Image.Transpose.ROTATE_90)
+            elif rotate_deg == 180:
+                img = img.transpose(Image.Transpose.ROTATE_180)
+            elif rotate_deg == 270:
+                img = img.transpose(Image.Transpose.ROTATE_270)
 
             # Landscape: crop → outfill → resize 800×480 → colour adjust → dither
             land = _crop_with_outfill(img, edits['crop_l_x'], edits['crop_l_y'],
@@ -601,6 +610,144 @@ def reconvert_all_intelligent():
         sizes = get_screen_types_for_image(base)
         for w, h in sizes:
             convert_image_for_screen(src, base, w, h)
+
+
+# ---------------------------------------------------------------------------
+# Per-entry artifact helpers  (storage key = pe<entry_id>_*)
+# ---------------------------------------------------------------------------
+
+def entry_artifact_prefix(entry_id):
+    """Return the storage-name prefix for all artifacts of a playlist entry."""
+    return f'pe{entry_id}'
+
+
+def delete_entry_artifacts(entry_id):
+    """Delete BMP and bin artifacts for a playlist entry; leaves originals intact."""
+    prefix = entry_artifact_prefix(entry_id)
+    for sfx in ('_l.bmp', '_p.bmp', '_l_u.bin', '_l_f.bin', '_p_u.bin', '_p_f.bin'):
+        p = os.path.join(IMAGES_DIR, prefix + sfx)
+        if os.path.exists(p):
+            try:
+                os.remove(p)
+            except OSError as e:
+                logger.warning(f"delete_entry_artifacts(entry={entry_id}): {p}: {e}")
+
+
+def ensure_entry_bin_files(entry_id):
+    """Ensure _l_u/_l_f/_p_u/_p_f bin files exist for pe<entry_id> BMPs.
+    Delegates to the existing ensure_bin_files() since the naming convention is compatible."""
+    return ensure_bin_files(entry_artifact_prefix(entry_id))
+
+
+def _default_landscape_crop_img(img, rw, rh):
+    """Return a 5:3 landscape crop of img (rw×rh are its current dims after rotation)."""
+    tl = 5.0 / 3.0
+    if rw / rh <= tl:
+        wc, hc = rw, int(rw / tl); xc, yc = 0, (rh - hc) // 2
+    else:
+        hc, wc = rh, int(rh * tl); yc, xc = 0, (rw - wc) // 2
+    return img.crop((xc, yc, xc + wc, yc + hc))
+
+
+def _default_portrait_crop_img(img, rw, rh):
+    """Return a 3:5 portrait crop of img (rw×rh are its current dims after rotation)."""
+    tp = 3.0 / 5.0
+    if rw / rh >= tp:
+        hc, wc = rh, int(rh * tp); yc, xc = 0, (rw - wc) // 2
+    else:
+        wc, hc = rw, int(rw / tp); xc, yc = 0, (rh - hc) // 2
+    return img.crop((xc, yc, xc + wc, yc + hc))
+
+
+def convert_entry(entry_id):
+    """Convert an image for a specific playlist_entry using the canonical pipeline:
+    1. user rotate  2. crop  3. portrait device-rotate (before scale)
+    4. scale to 800×480  5. colour adjust + dither.
+
+    Artifacts stored as pe<entry_id>_l.bmp / pe<entry_id>_p.bmp and matching bins.
+    Returns True on success.
+    """
+    from db import get_playlist_entry, get_image_by_uuid
+    entry = get_playlist_entry(entry_id)
+    if not entry:
+        logger.error(f"convert_entry: entry {entry_id} not found")
+        return False
+    image = get_image_by_uuid(entry['image_uuid'])
+    if not image:
+        logger.error(f"convert_entry: image {entry['image_uuid']} not found")
+        return False
+
+    orig_fn  = image['original_filename']
+    src_path = os.path.join(ORIGINALS_DIR, orig_fn)
+    if not os.path.exists(src_path):
+        logger.error(f"convert_entry: original not found: {src_path}")
+        return False
+
+    try:
+        img = ImageOps.exif_transpose(Image.open(src_path)).convert('RGB')
+        rw, rh = img.size
+
+        # Extract params
+        bg     = entry.get('bg_color', '#ffffff') or '#ffffff'
+        hue_s  = float(entry.get('hue_shift',  0) or 0)
+        sat    = float(entry.get('saturation',  1) or 1)
+        val_a  = float(entry.get('value_adj',   1) or 1)
+        r_gain = float(entry.get('r_gain',      1) or 1)
+        g_gain = float(entry.get('g_gain',      1) or 1)
+        b_gain = float(entry.get('b_gain',      1) or 1)
+        rotate_deg = int(entry.get('rotate', 0) or 0) % 360
+
+        # Step 1: user rotate
+        if rotate_deg == 90:
+            img = img.transpose(Image.Transpose.ROTATE_90)
+        elif rotate_deg == 180:
+            img = img.transpose(Image.Transpose.ROTATE_180)
+        elif rotate_deg == 270:
+            img = img.transpose(Image.Transpose.ROTATE_270)
+        rw, rh = img.size
+
+        prefix = entry_artifact_prefix(entry_id)
+
+        # --- Landscape artifact ---
+        if entry.get('crop_l_w') is not None:
+            land = _crop_with_outfill(img, entry['crop_l_x'], entry['crop_l_y'],
+                                      entry['crop_l_w'], entry['crop_l_h'], bg)
+        else:
+            land = _default_landscape_crop_img(img, rw, rh)
+        # Step 4: scale to final dims
+        land = land.resize((800, 480), Image.Resampling.LANCZOS)
+        # Step 5: colour adjust + dither
+        land = apply_color_adjustments(land, hue_s, sat, val_a, r_gain, g_gain, b_gain)
+        Image.fromarray(
+            dither_floyd_steinberg(np.array(land, dtype=np.float32), PALETTE)
+        ).save(os.path.join(IMAGES_DIR, prefix + '_l.bmp'), format='BMP')
+
+        # --- Portrait artifact ---
+        if entry.get('crop_p_w') is not None:
+            port = _crop_with_outfill(img, entry['crop_p_x'], entry['crop_p_y'],
+                                      entry['crop_p_w'], entry['crop_p_h'], bg)
+        else:
+            port = _default_portrait_crop_img(img, rw, rh)
+        # Step 3: device portrait rotate (BEFORE scale — keeps orientation identical to old output)
+        port = port.rotate(270, expand=True)
+        # Step 4: scale to 800×480 (now in landscape pixel order for the panel)
+        port = port.resize((800, 480), Image.Resampling.LANCZOS)
+        # Step 5: colour adjust + dither
+        port = apply_color_adjustments(port, hue_s, sat, val_a, r_gain, g_gain, b_gain)
+        Image.fromarray(
+            dither_floyd_steinberg(np.array(port, dtype=np.float32), PALETTE)
+        ).save(os.path.join(IMAGES_DIR, prefix + '_p.bmp'), format='BMP')
+
+        # Invalidate old bins and regenerate
+        for sfx in ('_l_u.bin', '_l_f.bin', '_p_u.bin', '_p_f.bin'):
+            p = os.path.join(IMAGES_DIR, prefix + sfx)
+            if os.path.exists(p):
+                os.remove(p)
+        ensure_entry_bin_files(entry_id)
+        return True
+    except Exception as e:
+        logger.error(f"convert_entry({entry_id}): {e}")
+        return False
 
 
 def reconvert_for_playlist_screen(base, playlist_id):

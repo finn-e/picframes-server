@@ -24,8 +24,12 @@ from db import (
     get_global_setting, trigger_redownload, state_lock, IMAGES_DIR,
     record_battery, get_battery_history,
     update_device_hw_profile, get_device_owner_id,
+    # Entry-based helpers
+    get_device_active_entries, get_playlist_entry,
 )
-from image import ensure_bin_files, ensure_bin_files_for_screen, screen_size_for_profile, _artifact_infix
+from image import (ensure_bin_files, ensure_bin_files_for_screen,
+                   screen_size_for_profile, _artifact_infix,
+                   ensure_entry_bin_files, entry_artifact_prefix)
 
 logger = logging.getLogger(__name__)
 
@@ -159,18 +163,39 @@ def api_change_orientation():
 
 @api_bp.route('/api/queue', methods=['POST'])
 def queue_image_api():
-    data   = request.get_json() or {}
-    base   = data.get('base')
-    source = data.get('source')
-    if not base or not source:
-        return jsonify({'ok': False, 'error': 'Missing base or source'}), 400
+    data      = request.get_json() or {}
+    source    = data.get('source')
+    # Support both legacy base-based queuing and new entry_id-based queuing
+    base      = data.get('base')
+    entry_id  = data.get('entry_id')
+    playlist_id = data.get('playlist_id')
+
+    if not source or (not base and entry_id is None):
+        return jsonify({'ok': False, 'error': 'Missing base/entry_id or source'}), 400
+
     with state_lock:
         state = load_state()
         current_queued = state.get('queued_image')
-        if current_queued and current_queued.get('base') == base and current_queued.get('source') == source:
-            state['queued_image'] = None; action = 'dequeued'
+
+        if entry_id is not None:
+            # Entry-based queue (playlist devices)
+            new_q = {'entry_id': int(entry_id), 'source': source}
+            if playlist_id is not None:
+                new_q['playlist_id'] = int(playlist_id)
+            if (current_queued and current_queued.get('entry_id') == int(entry_id)
+                    and current_queued.get('source') == source):
+                state['queued_image'] = None; action = 'dequeued'
+            else:
+                state['queued_image'] = new_q; action = 'queued'
         else:
-            state['queued_image'] = {'base': base, 'source': source}; action = 'queued'
+            # Legacy base-based queue (general pool devices)
+            new_q = {'base': base, 'source': source}
+            if (current_queued and current_queued.get('base') == base
+                    and current_queued.get('source') == source):
+                state['queued_image'] = None; action = 'dequeued'
+            else:
+                state['queued_image'] = new_q; action = 'queued'
+
         state.setdefault('redownload', {})
         if source == 'general':
             cfg = load_config()
@@ -303,8 +328,16 @@ def _daily_config_inner():
     pid          = get_device_playlist_id(mac)
     pl_settings  = get_playlist_settings(pid)
     sleep_interval = pl_settings['sleep_interval']
-    active_bases   = get_device_active_bases(mac, orientation)
-    zip_version    = hashlib.md5((','.join(active_bases) + orientation).encode()).hexdigest()[:8]
+
+    # For playlist devices use entry titles; for non-playlist use base names
+    if pid is not None:
+        entries     = get_device_active_entries(mac, orientation)
+        images_list = [e['title'] for e in entries]
+    else:
+        active_bases = get_device_active_bases(mac, orientation)
+        images_list  = active_bases
+
+    zip_version = hashlib.md5((','.join(images_list) + orientation).encode()).hexdigest()[:8]
 
     with state_lock:
         state = load_state()
@@ -316,7 +349,7 @@ def _daily_config_inner():
         'orientation':       orientation,
         'sleep_interval':    sleep_interval,
         'daily_zip_version': zip_version,
-        'images':            active_bases,
+        'images':            images_list,
         'enabled':           {str(k): dict(v) for k, v in load_enabled().items()},
         'landscape_flipped': bool(dev_cfg.get('flip_l', False)),
         'portrait_flipped':  bool(dev_cfg.get('flip_p', False)),
@@ -334,18 +367,35 @@ def device_daily_config():
 # ---------------------------------------------------------------------------
 
 def _queued_idx_for(queued, mac, pool):
-    """Return the index the queued image occupies in this device's candidate list,
-    matching the ordering _daily_zip_inner produces: in-pool → pool.index(base),
-    out-of-pool → len(pool) (appended by daily-zip). Returns None if the queue
-    does not apply to this device."""
+    """Return the index the queued image/entry occupies in this device's pool.
+
+    *pool* is either:
+      - list of base strings (general-pool / non-playlist devices), OR
+      - list of entry dicts (playlist devices, each with key 'id').
+
+    In-pool → pool.index(item), out-of-pool → len(pool) (appended by daily-zip).
+    Returns None if the queue does not apply to this device.
+    """
     if not queued:
         return None
     src = queued.get('source', '')
     if src != 'general' and src.lower() != mac:
         return None
+
+    # Entry-based queue
+    eid = queued.get('entry_id')
+    if eid is not None:
+        if pool and isinstance(pool[0], dict):
+            pool_ids = [e['id'] for e in pool]
+            return pool_ids.index(eid) if eid in pool_ids else len(pool)
+        return len(pool)  # entry-queued but pool is base-based → append
+
+    # Base-based queue (legacy)
     base = queued.get('base')
     if not base:
         return None
+    if pool and isinstance(pool[0], dict):
+        return len(pool)  # base-queued but pool is entry-based → append
     return pool.index(base) if base in pool else len(pool)
 
 
@@ -385,15 +435,20 @@ def _refresh_inner():
         state.setdefault('last_seen', {})[mac]  = now_ts
         state.setdefault('device_ips', {})[mac] = _caller_ip()
 
+        # For pool-size calculations: use entry-based pool for playlist devices
+        def _get_pool():
+            if pid is not None:
+                return get_device_active_entries(mac, orientation)
+            return get_device_active_bases(mac, orientation)
+
         if sync and pid is not None:
             # All devices in playlist share one index
             p_indices  = state.setdefault('playlist_indices', {})
             current_idx = p_indices.get(str(pid), 0)
             if skip:
-                pool = get_device_active_bases(mac, orientation)
+                pool = _get_pool()
                 n    = len(pool)
                 if shuffle and n > 1:
-                    # advance to a different random position
                     current_idx = (current_idx + random.randint(1, n - 1)) % n
                 else:
                     current_idx = (current_idx + 1) % n if n else 0
@@ -403,7 +458,7 @@ def _refresh_inner():
             d_indices   = state.setdefault('device_indices', {})
             current_idx = d_indices.get(mac, 0)
             if skip:
-                pool = get_device_active_bases(mac, orientation)
+                pool = _get_pool()
                 n    = len(pool)
                 if shuffle and n > 1:
                     current_idx = (current_idx + random.randint(1, n - 1)) % n
@@ -416,7 +471,7 @@ def _refresh_inner():
         # If redownload is still True the device hasn't fetched since queueing, so the
         # appended index would be out of range on the device — leave the queue for next cycle.
         queued = state.get('queued_image')
-        pool   = get_device_active_bases(mac, orientation)
+        pool   = _get_pool()
         q_idx  = _queued_idx_for(queued, mac, pool)
         if q_idx is not None:
             redownload = state.get('redownload', {}).get(mac, False)
@@ -472,34 +527,17 @@ def _daily_zip_inner():
         state.setdefault('redownload', {})[mac_lower] = False
         save_state(state)
 
-    orientation    = dev_cfg.get('orientation', 'portrait')
-    hw_profile     = dev_cfg.get('hw_profile', '')
-    pid            = get_device_playlist_id(mac_lower)
-    pl_settings    = get_playlist_settings(pid)
-    active_bases   = get_device_active_bases(mac_lower, orientation)
+    orientation = dev_cfg.get('orientation', 'portrait')
+    hw_profile  = dev_cfg.get('hw_profile', '')
+    pid         = get_device_playlist_id(mac_lower)
+    pl_settings = get_playlist_settings(pid)
 
-    orient_char  = 'l' if orientation == 'landscape' else 'p'
-    flip         = dev_cfg.get('flip_l', False) if orientation == 'landscape' else dev_cfg.get('flip_p', False)
-    scr_w, scr_h = screen_size_for_profile(hw_profile)
-    infix        = _artifact_infix(scr_w, scr_h)
-    # Flip not supported for non-standard screens (would require proper rotation);
-    # fall through to unflipped for safety.
-    effective_flip = flip if not infix else False
-    store_suffix = f'{infix}_{orient_char}_{"f" if effective_flip else "u"}.bin'
-    zip_suffix   = f'_{orient_char}.bin'  # arcname inside zip is always _l.bin/_p.bin
-
-    zip_version    = hashlib.md5((','.join(active_bases) + orientation).encode()).hexdigest()[:8]
-    client_version = request.args.get('version', '').strip()
-    if client_version and client_version == zip_version:
-        return Response(status=304)
-
-    candidates = list(active_bases)
-    queued = state.get('queued_image')
-    if queued and (queued.get('source') == 'general' or
-                   queued.get('source', '').lower() == mac_lower):
-        q_base = queued.get('base')
-        if q_base and q_base not in candidates:
-            candidates.append(q_base)
+    orient_char    = 'l' if orientation == 'landscape' else 'p'
+    flip           = dev_cfg.get('flip_l', False) if orientation == 'landscape' else dev_cfg.get('flip_p', False)
+    scr_w, scr_h   = screen_size_for_profile(hw_profile)
+    infix          = _artifact_infix(scr_w, scr_h)
+    effective_flip = flip if not infix else False  # flip unsupported for non-default screens
+    zip_suffix     = f'_{orient_char}.bin'
 
     serializable_cfg = {
         "timer":             pl_settings['sleep_interval'],
@@ -510,18 +548,73 @@ def _daily_zip_inner():
         "portrait_flipped":  bool(dev_cfg.get('flip_p', False)),
     }
 
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, mode='w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
-        zf.writestr('config.json', json.dumps(serializable_cfg, indent=2))
-        zip_names = [b + zip_suffix for b in candidates]
-        manifest  = json.dumps(zip_names, indent=2)
-        zf.writestr('index.json', manifest)
-        zf.writestr('list.json',  manifest)
-        for base in candidates:
-            ensure_bin_files_for_screen(base, scr_w, scr_h)
-            bin_path = os.path.join(IMAGES_DIR, base + store_suffix)
-            if os.path.exists(bin_path):
-                zf.write(bin_path, arcname=base + zip_suffix)
+    queued = state.get('queued_image')
+    q_applies = queued and (queued.get('source') == 'general' or
+                            queued.get('source', '').lower() == mac_lower)
+
+    if pid is not None:
+        # ---- Entry-based path for playlist devices ----
+        entries = get_device_active_entries(mac_lower, orientation)
+        candidate_entries = list(entries)
+        entry_ids_in_pool = {e['id'] for e in entries}
+
+        # Append queued entry if out-of-pool
+        if q_applies and queued.get('entry_id') is not None:
+            q_eid = queued['entry_id']
+            if q_eid not in entry_ids_in_pool:
+                q_entry = get_playlist_entry(q_eid)
+                if q_entry:
+                    candidate_entries.append(q_entry)
+
+        entry_titles = [e['title'] for e in entries]
+        zip_version  = hashlib.md5((','.join(entry_titles) + orientation).encode()).hexdigest()[:8]
+        client_version = request.args.get('version', '').strip()
+        if client_version and client_version == zip_version:
+            return Response(status=304)
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, mode='w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+            zf.writestr('config.json', json.dumps(serializable_cfg, indent=2))
+            zip_names = [e['title'] + zip_suffix for e in candidate_entries]
+            manifest  = json.dumps(zip_names, indent=2)
+            zf.writestr('index.json', manifest)
+            zf.writestr('list.json',  manifest)
+            for entry in candidate_entries:
+                # Ensure bins exist (synchronous safety net; background thread handles normal case)
+                ensure_entry_bin_files(entry['id'])
+                # Entry artifacts are always 800×480 (13in3 not yet entry-scoped)
+                bin_sfx  = f'_{orient_char}_{"f" if effective_flip else "u"}.bin'
+                bin_path = os.path.join(IMAGES_DIR, entry_artifact_prefix(entry['id']) + bin_sfx)
+                if os.path.exists(bin_path):
+                    zf.write(bin_path, arcname=entry['title'] + zip_suffix)
+    else:
+        # ---- Legacy base-based path for non-playlist devices ----
+        active_bases = get_device_active_bases(mac_lower, orientation)
+        store_suffix = f'{infix}_{orient_char}_{"f" if effective_flip else "u"}.bin'
+
+        zip_version  = hashlib.md5((','.join(active_bases) + orientation).encode()).hexdigest()[:8]
+        client_version = request.args.get('version', '').strip()
+        if client_version and client_version == zip_version:
+            return Response(status=304)
+
+        candidates = list(active_bases)
+        if q_applies and queued.get('base'):
+            q_base = queued['base']
+            if q_base not in candidates:
+                candidates.append(q_base)
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, mode='w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+            zf.writestr('config.json', json.dumps(serializable_cfg, indent=2))
+            zip_names = [b + zip_suffix for b in candidates]
+            manifest  = json.dumps(zip_names, indent=2)
+            zf.writestr('index.json', manifest)
+            zf.writestr('list.json',  manifest)
+            for base in candidates:
+                ensure_bin_files_for_screen(base, scr_w, scr_h)
+                bin_path = os.path.join(IMAGES_DIR, base + store_suffix)
+                if os.path.exists(bin_path):
+                    zf.write(bin_path, arcname=base + zip_suffix)
 
     size = buf.tell(); buf.seek(0)
     return Response(buf, mimetype='application/zip',

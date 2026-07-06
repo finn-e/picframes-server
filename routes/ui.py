@@ -16,6 +16,8 @@ from db import (
     check_user_password, get_user_by_username, list_users, get_user_stats,
     flags, ORIGINALS_DIR, IMAGES_DIR, LANDSCAPE_SUFFIX, PORTRAIT_SUFFIX,
     SHARE_DIR, get_latest_battery,
+    # Per-entry data model
+    get_playlist_entries, get_image_by_uuid,
 )
 from image import ensure_dithered_original
 
@@ -149,12 +151,37 @@ def index():
     playlists = load_playlists()
     default_pid = get_global_setting('default_playlist_id')
 
-    # Build playlist image sets and device membership
-    playlist_image_sets = {}
+    # Build playlist image sets, device membership, and entry data
+    playlist_image_sets  = {}
     playlist_device_macs = {}
+    playlist_entries_data = {}   # pid → list of enriched entry dicts
     for pl in playlists:
-        playlist_image_sets[pl['id']]   = set(get_playlist_images(pl['id']))
-        playlist_device_macs[pl['id']]  = set(get_playlist_devices(pl['id']))
+        playlist_image_sets[pl['id']]  = set(get_playlist_images(pl['id']))
+        playlist_device_macs[pl['id']] = set(get_playlist_devices(pl['id']))
+        entries = get_playlist_entries(pl['id'])
+        enriched = []
+        for entry in entries:
+            img = get_image_by_uuid(entry['image_uuid'])
+            if not img:
+                continue
+            orig_fn   = img['original_filename']
+            orig_path = os.path.join(ORIGINALS_DIR, orig_fn)
+            if not os.path.exists(orig_path):
+                continue
+            try:
+                with Image.open(orig_path) as im:
+                    orig_w, orig_h = im.size
+            except Exception:
+                orig_w, orig_h = 800, 480
+            prefix = f'pe{entry["id"]}'
+            enriched.append({
+                **entry,
+                'original_name': orig_fn,
+                'orig_w': orig_w, 'orig_h': orig_h,
+                'has_l': os.path.exists(os.path.join(IMAGES_DIR, prefix + '_l.bmp')),
+                'has_p': os.path.exists(os.path.join(IMAGES_DIR, prefix + '_p.bmp')),
+            })
+        playlist_entries_data[pl['id']] = enriched
 
     images = []
     for base in order:
@@ -228,6 +255,7 @@ def index():
         playlists=playlists,
         playlist_image_sets={str(k): list(v) for k, v in playlist_image_sets.items()},
         playlist_device_macs={str(k): list(v) for k, v in playlist_device_macs.items()},
+        playlist_entries_data=playlist_entries_data,
         device_playlist_ids=device_playlist_ids,
         default_playlist_id=default_pid,
         current_user=current_user,

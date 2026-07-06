@@ -190,6 +190,23 @@
         /* Crop */
         .rename-input { font-weight: 600; font-size: 0.95rem; background: var(--input-bg); border: 1px solid var(--accent); border-radius: 6px; padding: 0.2rem 0.5rem; color: var(--text); font-family: inherit; max-width: 260px; }
 
+        /* Part A: Editor zoom & live preview */
+        #editor-img-wrap { transform-origin: center center; will-change: transform; }
+        #editor-live-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; display: none; }
+        .ed-dither-btn { width: 100%; padding: 0.4rem; border-radius: 7px; font-size: 0.82rem; font-weight: 700; background: rgba(255,255,255,0.06); color: var(--text); border: 1px solid var(--border); cursor: pointer; font-family: inherit; display: flex; align-items: center; justify-content: center; gap: 0.35rem; }
+        .ed-dither-btn:hover { background: rgba(255,255,255,0.11); }
+        .ed-dither-btn.loading { opacity: 0.6; cursor: wait; }
+        .ed-dither-btn.active { background: rgba(167,139,250,0.2); color: #a78bfa; border-color: rgba(167,139,250,0.4); }
+        .ed-spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Part B: Drawer crop canvas */
+        .drawer-orig-wrap { position: relative; }
+        .drawer-img-container { position: relative; display: inline-block; line-height: 0; }
+        .drawer-crop-canvas { position: absolute; top: 0; left: 0; pointer-events: none; }
+        /* Hide row action buttons while drawer is open */
+        .img-card-list.open .img-row-actions { visibility: hidden; }
+
         /* Collapsible drawers */
         .drawer-section { margin-bottom: 1.5rem; }
         .drawer-toggle { display: flex; align-items: center; justify-content: space-between; cursor: pointer; padding: 0.5rem 0; border-bottom: 1px solid var(--border); margin-bottom: 1rem; user-select: none; }
@@ -440,48 +457,25 @@
                 <span class="img-row-chevron">▶</span>
                 <span class="img-row-name" onclick="event.stopPropagation(); startRename(this, '{{ img.base }}')">{{ img.base.replace('_', ' ') }}</span>
                 <div class="img-row-actions" onclick="event.stopPropagation()">
-                    <button class="btn-queue-sm {% if is_queued %}active{% endif %}"
-                            data-queue-base="{{ img.base }}"
-                            onclick="queueImage('{{ img.base }}', this)"
-                            title="Queue Push">⚡</button>
-                    <button class="btn-queue-sm" disabled title="Share (coming soon)" style="opacity:0.4; cursor:not-allowed;">Share</button>
                     <form action="{{ url_for('admin.delete_file', filename=img.original_name) }}" method="POST" style="display:inline;" onsubmit="return confirm('Delete this asset?');">
                         <button type="submit" class="btn-queue-sm" style="color:var(--danger);" title="Remove asset" onclick="event.stopPropagation()">🗑</button>
                     </form>
                 </div>
             </div>
             <div class="img-drawer">
-                <div class="img-drawer-inner">
+                <div class="img-drawer-inner" style="grid-template-columns:1fr;">
                     <div class="drawer-orig-wrap">
-                        <img class="drawer-orig-img"
-                             src="{{ url_for('ui.serve_original', filename=img.original_name) }}"
-                             loading="lazy"
-                             onclick="openEditor('{{ img.base }}')"
-                             title="Click to open editor">
+                        <div class="drawer-img-container">
+                            <img class="drawer-orig-img"
+                                 src="{{ url_for('ui.serve_original', filename=img.original_name) }}"
+                                 loading="lazy"
+                                 title="Original image">
+                        </div>
                     </div>
-                    <div class="drawer-ctrl-col">
-                        <div class="drawer-ctrl-lp">
-                            <span>Landscape</span>
-                            <input type="checkbox" class="toggle" {% if img.l_on %}checked{% endif %}
-                                   onchange="toggleOrient('{{ img.base }}', 'l', this.checked)">
-                        </div>
-                        <div class="drawer-ctrl-lp">
-                            <span>Portrait</span>
-                            <input type="checkbox" class="toggle" {% if img.p_on %}checked{% endif %}
-                                   onchange="toggleOrient('{{ img.base }}', 'p', this.checked)">
-                        </div>
-                        <div class="drawer-ctrl-sep"></div>
-                        <button class="drawer-ctrl-btn {% if is_queued %}active{% endif %}"
-                                data-queue-base="{{ img.base }}"
-                                onclick="queueImage('{{ img.base }}', this)">⚡ Queue</button>
-                        <form action="{{ url_for('admin.convert_file', filename=img.original_name) }}" method="POST" style="margin:0;">
-                            <button type="submit" class="drawer-ctrl-btn">↻ Reconvert</button>
-                        </form>
-                        <button class="drawer-ctrl-btn" onclick="openEditor('{{ img.base }}')">✏ Edit</button>
-                        <div class="drawer-ctrl-sep"></div>
-                        <form action="{{ url_for('admin.delete_file', filename=img.original_name) }}" method="POST" style="margin:0;"
+                    <div style="padding:0.5rem 1rem; border-top:1px solid var(--border); display:flex; justify-content:flex-end;">
+                        <form action="{{ url_for('admin.delete_file', filename=img.original_name) }}" method="POST"
                               onsubmit="return confirm('Delete this asset?');">
-                            <button type="submit" class="drawer-ctrl-btn danger">🗑 Remove</button>
+                            <button type="submit" class="drawer-ctrl-btn danger" style="width:auto;">🗑 Remove</button>
                         </form>
                     </div>
                 </div>
@@ -493,117 +487,105 @@
         <div id="grid-view-general" class="grid-view" style="display:none;">
         <div class="img-grid">
         {% for img in images %}
-        {% if img.l_on and img.has_l %}
         <div class="img-grid-tile" data-base="{{ img.base }}" draggable="true"
              ondragstart="imgDragStart(event, '{{ img.base }}')" ondragend="imgDragEnd(event)"
              ondragover="gridTileDragOver(event)" ondragleave="gridTileDragLeave(event)" ondrop="gridTileDrop(event)"
-             title="{{ img.base.replace('_', ' ') }} — Landscape">
-            <img src="{{ url_for('ui.serve_image', filename=img.base + '_l.bmp') }}" loading="lazy" alt="{{ img.base }}">
+             title="{{ img.base.replace('_', ' ') }}">
+            <img src="{{ url_for('ui.serve_original', filename=img.original_name) }}" loading="lazy" alt="{{ img.base }}" style="max-height:200px; object-fit:contain; width:100%;">
             <div class="tile-label">{{ img.base.replace('_', ' ') }}</div>
         </div>
-        {% endif %}
-        {% if img.p_on and img.has_p %}
-        <div class="img-grid-tile" data-base="{{ img.base }}" draggable="true"
-             ondragstart="imgDragStart(event, '{{ img.base }}')" ondragend="imgDragEnd(event)"
-             ondragover="gridTileDragOver(event)" ondragleave="gridTileDragLeave(event)" ondrop="gridTileDrop(event)"
-             title="{{ img.base.replace('_', ' ') }} — Portrait">
-            <img src="{{ url_for('ui.serve_image', filename=img.base + '_p.bmp') }}" loading="lazy" alt="{{ img.base }}" style="max-height:240px; object-fit:contain;">
-            <div class="tile-label">{{ img.base.replace('_', ' ') }} ↕</div>
-        </div>
-        {% endif %}
         {% endfor %}
         </div>
         </div>
     </div>
 
     {% for pl in playlists %}
-    {% set pl_imgs_list = playlist_image_sets.get(pl.id|string, []) %}
+    {% set pl_entries = playlist_entries_data.get(pl.id, []) %}
     <div id="pool-content-playlist-{{ pl.id }}" style="display:none;">
         <div class="list-view">
-        {% for base in pl_imgs_list %}
-        {% set img = image_by_base.get(base) %}
-        {% if img %}
-        {% set disabled = (not img.l_on and not img.p_on) %}
-        {% set is_queued = (state.queued_image and state.queued_image.base == img.base) %}
-        <div class="img-card-list {% if disabled %}disabled{% endif %}" data-base="{{ base }}" data-playlist="{{ pl.id }}">
+        {% if not pl_entries %}
+        <p style="color:var(--muted); padding:1rem;">No images in this playlist yet. Drag images here from General Pool.</p>
+        {% endif %}
+        {% for entry in pl_entries %}
+        {% set is_queued = (state.queued_image and state.queued_image.get('entry_id') == entry.id) %}
+        {% set disabled = (not entry.enabled_l and not entry.enabled_p) %}
+        <div class="img-card-list {% if disabled %}disabled{% endif %}"
+             data-entry-id="{{ entry.id }}" data-playlist="{{ pl.id }}">
             <div class="img-row" onclick="toggleCard(this)">
                 <span class="img-row-chevron">▶</span>
-                <span class="img-row-name">{{ base.replace('_', ' ') }}</span>
+                <span class="img-row-name"
+                      onclick="event.stopPropagation(); startEntryRename(this, {{ entry.id }}, {{ pl.id }})">{{ entry.title.replace('_', ' ') }}</span>
                 <div class="img-row-actions" onclick="event.stopPropagation()">
-                    <button class="btn-toggle-lp {% if img.l_on %}on-l{% endif %}"
-                            onclick="toggleOrient('{{ img.base }}', 'l', !{{ 'true' if img.l_on else 'false' }}, this)"
-                            title="Landscape {% if img.l_on %}ON{% else %}OFF{% endif %}">L</button>
-                    <button class="btn-toggle-lp {% if img.p_on %}on-p{% endif %}"
-                            onclick="toggleOrient('{{ img.base }}', 'p', !{{ 'true' if img.p_on else 'false' }}, this)"
-                            title="Portrait {% if img.p_on %}ON{% else %}OFF{% endif %}">P</button>
+                    <button class="btn-toggle-lp {% if entry.enabled_l %}on-l{% endif %}" data-orient="l"
+                            onclick="toggleEntryOrient({{ entry.id }}, 'l', !this.classList.contains('on-l'))"
+                            title="Landscape toggle">L</button>
+                    <button class="btn-toggle-lp {% if entry.enabled_p %}on-p{% endif %}" data-orient="p"
+                            onclick="toggleEntryOrient({{ entry.id }}, 'p', !this.classList.contains('on-p'))"
+                            title="Portrait toggle">P</button>
                     <button class="btn-queue-sm {% if is_queued %}active{% endif %}"
-                            data-queue-base="{{ img.base }}"
-                            onclick="queueImage('{{ img.base }}', this)"
+                            data-queue-entry="{{ entry.id }}"
+                            onclick="queueEntry({{ entry.id }}, {{ pl.id }}, this)"
                             title="Queue Push">⚡</button>
                     <button class="btn-queue-sm" style="color:var(--danger);"
-                            onclick="removeFromPlaylist({{ pl.id }}, '{{ base }}')" title="Remove from playlist">✕</button>
+                            onclick="removeEntry({{ pl.id }}, {{ entry.id }})" title="Remove from playlist">✕</button>
                 </div>
             </div>
             <div class="img-drawer">
                 <div class="img-drawer-inner">
                     <div class="drawer-orig-wrap">
-                        <img class="drawer-orig-img"
-                             src="{{ url_for('ui.serve_original', filename=img.original_name) }}"
-                             loading="lazy"
-                             onclick="openEditor('{{ img.base }}')"
-                             title="Click to open editor">
+                        <div class="drawer-img-container">
+                            <img class="drawer-orig-img"
+                                 src="{{ url_for('ui.serve_original', filename=entry.original_name) }}"
+                                 loading="lazy"
+                                 onclick="openEditorForEntry({{ entry.id }}, this.src)"
+                                 title="Click to open editor">
+                        </div>
                     </div>
                     <div class="drawer-ctrl-col">
                         <div class="drawer-ctrl-lp">
                             <span>Landscape</span>
-                            <input type="checkbox" class="toggle" {% if img.l_on %}checked{% endif %}
-                                   onchange="toggleOrient('{{ img.base }}', 'l', this.checked)">
+                            <input type="checkbox" class="toggle" data-orient="l" {% if entry.enabled_l %}checked{% endif %}
+                                   onchange="toggleEntryOrient({{ entry.id }}, 'l', this.checked)">
                         </div>
                         <div class="drawer-ctrl-lp">
                             <span>Portrait</span>
-                            <input type="checkbox" class="toggle" {% if img.p_on %}checked{% endif %}
-                                   onchange="toggleOrient('{{ img.base }}', 'p', this.checked)">
+                            <input type="checkbox" class="toggle" data-orient="p" {% if entry.enabled_p %}checked{% endif %}
+                                   onchange="toggleEntryOrient({{ entry.id }}, 'p', this.checked)">
                         </div>
                         <div class="drawer-ctrl-sep"></div>
                         <button class="drawer-ctrl-btn {% if is_queued %}active{% endif %}"
-                                data-queue-base="{{ img.base }}"
-                                onclick="queueImage('{{ img.base }}', this)">⚡ Queue</button>
-                        <form action="{{ url_for('admin.convert_file_for_playlist', pid=pl.id, filename=img.original_name) }}" method="POST" style="margin:0;">
-                            <button type="submit" class="drawer-ctrl-btn">↻ Reconvert</button>
-                        </form>
-                        <button class="drawer-ctrl-btn" onclick="openEditor('{{ img.base }}')">✏ Edit</button>
-                        <div class="drawer-ctrl-sep"></div>
+                                data-queue-entry="{{ entry.id }}"
+                                onclick="queueEntry({{ entry.id }}, {{ pl.id }}, this)">⚡ Queue</button>
+                        <button class="drawer-ctrl-btn"
+                                onclick="openEditorForEntry({{ entry.id }}, this.closest('.img-drawer').querySelector('.drawer-orig-img').src)">✏ Edit</button>
+                        <div class="drawer-ctrl-sep" style="margin-top:0.4rem;"></div>
+                        <button class="drawer-ctrl-btn"
+                                onclick="reconvertEntry({{ entry.id }}, this)">↻ Reconvert</button>
                         <button class="drawer-ctrl-btn danger"
-                                onclick="removeFromPlaylist({{ pl.id }}, '{{ base }}')">✕ Remove</button>
+                                onclick="removeEntry({{ pl.id }}, {{ entry.id }})">✕ Remove</button>
                     </div>
                 </div>
             </div>
         </div>
-        {% endif %}
-        {% else %}
-        <p style="color:var(--muted); padding:1rem;">No images in this playlist yet. Drag images here from General Pool.</p>
         {% endfor %}
         </div>
 
         <div class="grid-view" style="display:none;">
         <div class="img-grid">
-        {% for base in pl_imgs_list %}
-        {% set img = image_by_base.get(base) %}
-        {% if img %}
-        {% if img.l_on and img.has_l %}
-        <div class="img-grid-tile" data-base="{{ img.base }}"
-             title="{{ img.base.replace('_', ' ') }} — Landscape">
-            <img src="{{ url_for('ui.serve_image', filename=img.base + '_l.bmp') }}" loading="lazy" alt="{{ img.base }}">
-            <div class="tile-label">{{ img.base.replace('_', ' ') }}</div>
+        {% for entry in pl_entries %}
+        {% if entry.enabled_l and entry.has_l %}
+        <div class="img-grid-tile" data-entry-id="{{ entry.id }}"
+             title="{{ entry.title.replace('_', ' ') }} — Landscape">
+            <img src="{{ url_for('ui.serve_image', filename='pe' ~ entry.id ~ '_l.bmp') }}" loading="lazy" alt="{{ entry.title }}">
+            <div class="tile-label">{{ entry.title.replace('_', ' ') }}</div>
         </div>
         {% endif %}
-        {% if img.p_on and img.has_p %}
-        <div class="img-grid-tile" data-base="{{ img.base }}"
-             title="{{ img.base.replace('_', ' ') }} — Portrait">
-            <img src="{{ url_for('ui.serve_image', filename=img.base + '_p.bmp') }}" loading="lazy" alt="{{ img.base }}" style="max-height:240px; object-fit:contain;">
-            <div class="tile-label">{{ img.base.replace('_', ' ') }} ↕</div>
+        {% if entry.enabled_p and entry.has_p %}
+        <div class="img-grid-tile" data-entry-id="{{ entry.id }}"
+             title="{{ entry.title.replace('_', ' ') }} — Portrait">
+            <img src="{{ url_for('ui.serve_image', filename='pe' ~ entry.id ~ '_p.bmp') }}" loading="lazy" alt="{{ entry.title }}" style="max-height:240px; object-fit:contain;">
+            <div class="tile-label">{{ entry.title.replace('_', ' ') }} ↕</div>
         </div>
-        {% endif %}
         {% endif %}
         {% endfor %}
         </div>
@@ -674,7 +656,9 @@
       <div id="editor-img-wrap">
         <!-- Original image (default view) -->
         <img id="editor-orig" src="" alt="">
-        <!-- Dithered preview (shown in dither mode; same layout as original) -->
+        <!-- Live adjustment canvas overlay (full canvas pixel math: HSV + RGB gains) -->
+        <canvas id="editor-live-canvas"></canvas>
+        <!-- Dithered preview (shown in dither mode) -->
         <img id="editor-preview" src="" alt="" style="display:none; position:absolute; inset:0; width:100%; height:100%; object-fit:contain; pointer-events:none;">
         <!-- Landscape crop rect (green) -->
         <div id="ecrop-l" class="ecrop-rect" style="display:none; border:2px dashed #22c55e;"></div>
@@ -695,14 +679,17 @@
         <button id="ed-crop-p-btn" class="ed-crop-btn" style="border-color:#f97316;color:#f97316;" onclick="setActiveCrop('p')">Portrait</button>
       </div>
       <div class="ed-zoom-btns">
-        <button class="ed-zoom-btn" onclick="zoomCrop(-1)">− Out</button>
-        <button class="ed-zoom-btn" onclick="zoomCrop(1)">+ In</button>
+        <button class="ed-zoom-btn" onclick="zoomEditor(-1)" title="Zoom out (view only)">🔍−</button>
+        <button class="ed-zoom-btn" onclick="zoomEditor(1)"  title="Zoom in (view only)">🔍+</button>
       </div>
-      <!-- Dithered preview toggle -->
-      <label class="toggle-wrap" style="font-size:0.85rem;">
-        <input type="checkbox" class="toggle" id="ed-dither-toggle" onchange="setDitherMode(this.checked)">
-        <span>Dithered preview</span>
-      </label>
+      <!-- Rotate buttons -->
+      <div class="ed-lbl">Rotate</div>
+      <div class="ed-zoom-btns">
+        <button class="ed-zoom-btn" onclick="rotateEditor(-90)" title="Rotate 90° counter-clockwise">↺ 90°</button>
+        <button class="ed-zoom-btn" onclick="rotateEditor(90)"  title="Rotate 90° clockwise">↻ 90°</button>
+      </div>
+      <!-- Dithered preview button -->
+      <button id="ed-dither-btn" class="ed-dither-btn" onclick="requestDitherPreview()">🎨 Dithered Preview</button>
       <!-- HSV sliders -->
       <div class="ed-lbl">HSV</div>
       <div class="ed-slider-row">
@@ -764,6 +751,7 @@
 // Playlist data from server
 const PLAYLISTS = {{ playlists | tojson }};
 const PLAYLIST_IMAGE_SETS = {{ playlist_image_sets | tojson }};
+const PLAYLIST_ENTRIES_DATA = {{ playlist_entries_data | tojson }};
 
 // ---- Theme ----
 function changeTheme(t) { document.documentElement.setAttribute('data-theme', t); localStorage.setItem('picframes-theme', t); }
@@ -773,6 +761,7 @@ window.addEventListener('DOMContentLoaded', () => {
     const s = document.getElementById('theme-select'); if(s) s.value = t;
     restoreDrawers();
 });
+
 
 // ---- Toast ----
 function toast(m, duration=2500) {
@@ -837,7 +826,14 @@ document.querySelectorAll('.pool-tab').forEach(t => {
 function toggleCard(rowEl) {
     const card = rowEl.closest('.img-card-list');
     if(!card) return;
+    const wasOpen = card.classList.contains('open');
     card.classList.toggle('open');
+    if (!wasOpen && card.classList.contains('open')) onCardOpen(card);
+}
+
+function onCardOpen(card) {
+    // Playlist entry drawers get crop-rect overlay; General Pool drawers do not
+    if (card.dataset.entryId) openDrawerCropCanvas(card);
 }
 
 // ---- Inline rename ----
@@ -901,28 +897,132 @@ function renamePlaylist(span, pid) {
     input.addEventListener('blur', commit);
 }
 
-// ---- L/P toggles ----
-function toggleOrient(base, orient, enabled, btn) {
+// ---- L/P toggles (bidirectional sync) ----
+function toggleOrient(base, orient, enabled) {
     fetch('/toggle_orient', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({base, orient, enabled})})
         .then(r=>r.json()).then(d => {
-            if(d.ok && btn) {
-                if(orient === 'l') { btn.classList.toggle('on-l', enabled); }
-                else { btn.classList.toggle('on-p', enabled); }
-                const card = btn.closest('.img-card-list');
-                if(card) { const disabled = !card.querySelector('.on-l') && !card.querySelector('.on-p'); card.classList.toggle('disabled', disabled); }
-            }
+            if(!d.ok) return;
+            // Update ALL cards for this base (row buttons + drawer toggles)
+            document.querySelectorAll(`.img-card-list[data-base="${CSS.escape(base)}"]`).forEach(card => {
+                // Row L/P buttons
+                card.querySelectorAll('.btn-toggle-lp[data-orient]').forEach(b => {
+                    if (b.dataset.orient === orient) {
+                        b.classList.toggle('on-l', orient === 'l' && enabled);
+                        b.classList.toggle('on-p', orient === 'p' && enabled);
+                    }
+                });
+                // Drawer checkbox toggles
+                card.querySelectorAll('input.toggle[data-orient]').forEach(inp => {
+                    if (inp.dataset.orient === orient) inp.checked = enabled;
+                });
+                // Card disabled state — check current drawer toggle states
+                let lOn = false, pOn = false;
+                card.querySelectorAll('input.toggle[data-orient]').forEach(inp => {
+                    if (inp.dataset.orient === 'l') lOn = inp.checked;
+                    if (inp.dataset.orient === 'p') pOn = inp.checked;
+                });
+                // Also check row buttons as fallback
+                if (!lOn) lOn = !!card.querySelector('.btn-toggle-lp.on-l');
+                if (!pOn) pOn = !!card.querySelector('.btn-toggle-lp.on-p');
+                card.classList.toggle('disabled', !lOn && !pOn);
+                // Redraw drawer crop canvas if open
+                if (card.classList.contains('open') && card.dataset.playlist) drawDrawerCropRects(card);
+            });
         });
 }
 
-// ---- Queue push ----
+// ---- Entry operations (playlist entries) ----
+
+function toggleEntryOrient(entryId, orient, enabled) {
+    fetch('/entry-toggle-orient/' + entryId, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({orient, enabled})
+    }).then(r => r.json()).then(d => {
+        if (!d.ok) return;
+        document.querySelectorAll(`.img-card-list[data-entry-id="${entryId}"]`).forEach(card => {
+            card.querySelectorAll('.btn-toggle-lp[data-orient]').forEach(b => {
+                if (b.dataset.orient === orient) {
+                    b.classList.toggle('on-l', orient === 'l' && enabled);
+                    b.classList.toggle('on-p', orient === 'p' && enabled);
+                }
+            });
+            card.querySelectorAll('input.toggle[data-orient]').forEach(inp => {
+                if (inp.dataset.orient === orient) inp.checked = enabled;
+            });
+            // Redraw drawer crop canvas
+            if (card.classList.contains('open')) drawDrawerCropRects(card);
+        });
+    });
+}
+
+function queueEntry(entryId, pid, btn) {
+    fetch('/api/queue', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({entry_id: entryId, playlist_id: pid, source: 'general'})
+    }).then(r => r.json()).then(d => {
+        if (d.ok) {
+            toast(d.action === 'queued' ? '⚡ Queued next' : 'Cleared queue');
+            document.querySelectorAll('[data-queue-entry]').forEach(b => b.classList.remove('active'));
+            if (d.action === 'queued') {
+                document.querySelectorAll(`[data-queue-entry="${entryId}"]`).forEach(b => b.classList.add('active'));
+            }
+        }
+    });
+}
+
+function removeEntry(pid, entryId) {
+    if (!confirm('Remove from playlist?')) return;
+    fetch(`/playlists/${pid}/remove_entry/${entryId}`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
+    }).then(r => r.json()).then(d => { if (d.ok) window.location.reload(); });
+}
+
+function reconvertEntry(entryId, btn) {
+    if (btn) { btn.textContent = '↻ …'; btn.disabled = true; }
+    fetch('/entry-reconvert/' + entryId, {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
+    }).then(r => r.json()).then(d => {
+        toast(d.ok ? 'Reconverting in background' : 'Reconvert failed');
+        if (btn) { btn.textContent = '↻ Reconvert'; btn.disabled = false; }
+    });
+}
+
+function startEntryRename(span, entryId, pid) {
+    if (span.querySelector('input')) return;
+    const input = document.createElement('input');
+    let done = false;
+    input.type = 'text'; input.className = 'rename-input';
+    input.value = span.textContent.trim();
+    span.style.display = 'none';
+    span.parentElement.insertBefore(input, span);
+    input.focus(); input.select();
+    function commit() {
+        if (done) return; done = true;
+        const title = input.value.trim();
+        if (!title) { cancel(); return; }
+        fetch(`/playlists/${pid}/rename_entry/${entryId}`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({title})
+        }).then(r => r.json()).then(d => {
+            if (d.ok) { toast('Renamed'); window.location.reload(); } else { toast('Error: ' + d.error); cancel(); }
+        });
+    }
+    function cancel() { if (done) return; done = true; input.remove(); span.style.display = ''; }
+    input.addEventListener('keydown', ev => { if (ev.key === 'Enter') commit(); if (ev.key === 'Escape') cancel(); });
+    input.addEventListener('blur', commit);
+}
+
+// ---- Queue push (legacy general-pool) ----
 function queueImage(base, btn) {
     fetch('/api/queue', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({base, source:'general'})})
         .then(r=>r.json()).then(d => {
             if(d.ok) {
                 toast(d.action === 'queued' ? '⚡ Queued next' : 'Cleared queue');
-                // Radio behavior: clear all queue buttons, then activate the clicked one.
+                // Radio behavior: clear all queue buttons, then activate all for this base
                 document.querySelectorAll('[data-queue-base]').forEach(b => b.classList.remove('active'));
-                if(btn && d.action === 'queued') btn.classList.add('active');
+                if(d.action === 'queued') {
+                    document.querySelectorAll(`[data-queue-base="${CSS.escape(base)}"]`).forEach(b => b.classList.add('active'));
+                }
             }
         });
 }
@@ -1151,15 +1251,206 @@ function deleteUser(uid, username) {
 const ED_AR = { l: 5/3, p: 3/5 }; // landscape / portrait aspect ratios
 
 let edSt = {
-    base: null, origW: 0, origH: 0,
-    cropL: null, cropP: null,          // {x,y,w,h} in original px
+    base: null,      // kept for legacy /image-edit/<base> path; null for entry editors
+    entryId: null,   // playlist entry id (preferred path)
+    origW: 0, origH: 0,
+    cropL: null, cropP: null,          // {x,y,w,h} in rotated-image px
     hueShift: 0, saturation: 1, valueAdj: 1,
     rGain: 1, gGain: 1, bGain: 1,
     bgColor: '#ffffff',
     activeCrop: null,                  // 'l' or 'p'
+    rotate: 0,                         // 0/90/180/270 — applied before crop
     ditherMode: false,
 };
-let edPreviewTimer = null;
+
+// --- Editor view zoom & pan ---
+let edViewZoom = 1;
+let edViewPan  = {x: 0, y: 0};
+
+function _applyEditorTransform() {
+    const wrap = document.getElementById('editor-img-wrap');
+    // rotate is applied to the img element; zoom+pan to the wrap
+    wrap.style.transform = `scale(${edViewZoom}) translate(${edViewPan.x}px, ${edViewPan.y}px)`;
+}
+
+function zoomEditor(dir) {
+    edViewZoom = Math.min(8, Math.max(1, edViewZoom * (dir > 0 ? 1.3 : 1/1.3)));
+    if (edViewZoom <= 1.02) { edViewZoom = 1; edViewPan = {x:0, y:0}; }
+    _applyEditorTransform();
+}
+
+// --- Editor rotate ---
+function rotateEditor(delta) {
+    edSt.rotate = ((edSt.rotate + delta) % 360 + 360) % 360;
+    const imgEl = document.getElementById('editor-orig');
+    imgEl.style.transform = `rotate(${edSt.rotate}deg)`;
+    // After rotation, natural dims may be logically swapped; reset default crops
+    const nw = imgEl.naturalWidth, nh = imgEl.naturalHeight;
+    if (nw && nh) {
+        const rotated = edSt.rotate % 180 !== 0;
+        const rw = rotated ? nh : nw, rh = rotated ? nw : nh;
+        edSt.cropL = _defaultCrop(rw, rh, 'l');
+        edSt.cropP = _defaultCrop(rw, rh, 'p');
+        renderCropRects();
+    }
+    _revertDither();
+    _renderEditorLiveCanvas();
+}
+
+// --- Live adjustment canvas (full-canvas: HSV + RGB pixel math) ---
+let edOffCanvas = null;  // downscaled offscreen canvas
+let edOffData   = null;  // cached raw ImageData from offscreen canvas
+
+function _initEditorLiveCanvas() {
+    edOffCanvas = null; edOffData = null;
+    const lc = document.getElementById('editor-live-canvas');
+    const imgEl = document.getElementById('editor-orig');
+
+    function setup() {
+        lc.width  = imgEl.offsetWidth  || imgEl.naturalWidth;
+        lc.height = imgEl.offsetHeight || imgEl.naturalHeight;
+
+        // Downscale offscreen canvas to ≤800px long side for perf
+        const MAX = 800;
+        let oW = imgEl.naturalWidth, oH = imgEl.naturalHeight;
+        if (edSt.rotate % 180 !== 0) { [oW, oH] = [oH, oW]; }
+        if (Math.max(oW, oH) > MAX) {
+            const sc = MAX / Math.max(oW, oH);
+            oW = Math.round(oW * sc); oH = Math.round(oH * sc);
+        }
+        const oc = document.createElement('canvas');
+        oc.width = oW; oc.height = oH;
+        const octx = oc.getContext('2d');
+        octx.save();
+        // Draw image rotated into the offscreen canvas
+        if (edSt.rotate === 90) {
+            octx.translate(oW, 0); octx.rotate(Math.PI / 2);
+            octx.drawImage(imgEl, 0, 0, oH, oW);
+        } else if (edSt.rotate === 180) {
+            octx.translate(oW, oH); octx.rotate(Math.PI);
+            octx.drawImage(imgEl, 0, 0, oW, oH);
+        } else if (edSt.rotate === 270) {
+            octx.translate(0, oH); octx.rotate(-Math.PI / 2);
+            octx.drawImage(imgEl, 0, 0, oH, oW);
+        } else {
+            octx.drawImage(imgEl, 0, 0, oW, oH);
+        }
+        octx.restore();
+        try { edOffData = octx.getImageData(0, 0, oW, oH); edOffCanvas = oc; }
+        catch(e) { edOffData = null; edOffCanvas = null; }
+        lc.style.display = '';
+        _renderEditorLiveCanvas();
+    }
+
+    if (imgEl.naturalWidth) setup();
+    // else: setup called from imgEl.onload in openEditor
+}
+
+function _renderEditorLiveCanvas() {
+    const lc = document.getElementById('editor-live-canvas');
+    if (!lc || !edOffData || !edOffCanvas) return;
+    const ctx = lc.getContext('2d');
+    const W = lc.width, H = lc.height;
+    const oW = edOffCanvas.width, oH = edOffCanvas.height;
+    const src = edOffData.data;
+
+    const hueRot = edSt.hueShift / 360;
+    const sat = edSt.saturation, val = edSt.valueAdj;
+    const rg = edSt.rGain, gg = edSt.gGain, bg = edSt.bGain;
+    const identity = hueRot === 0 && sat === 1 && val === 1 && rg === 1 && gg === 1 && bg === 1;
+
+    const out = ctx.createImageData(oW, oH);
+    const dst = out.data;
+
+    if (identity) {
+        dst.set(src);
+    } else {
+        for (let i = 0; i < src.length; i += 4) {
+            let r = src[i]/255, g = src[i+1]/255, b = src[i+2]/255;
+            // RGB → HSV
+            const mx = Math.max(r,g,b), mn = Math.min(r,g,b), d = mx - mn;
+            let hh = 0, ss = mx ? d/mx : 0, vv = mx;
+            if (d > 0) {
+                if      (mx === r) hh = ((g - b) / d % 6 + 6) % 6;
+                else if (mx === g) hh = (b - r) / d + 2;
+                else               hh = (r - g) / d + 4;
+            }
+            // Adjust H/S/V
+            hh = ((hh/6 + hueRot) % 1 + 1) % 1 * 6;
+            ss = Math.min(1, Math.max(0, ss * sat));
+            vv = Math.min(1, Math.max(0, vv * val));
+            // HSV → RGB
+            const fi = Math.floor(hh), ff = hh - fi;
+            const p = vv*(1-ss), q = vv*(1-ss*ff), t = vv*(1-ss*(1-ff));
+            switch (fi % 6) {
+                case 0: r=vv; g=t;  b=p;  break;
+                case 1: r=q;  g=vv; b=p;  break;
+                case 2: r=p;  g=vv; b=t;  break;
+                case 3: r=p;  g=q;  b=vv; break;
+                case 4: r=t;  g=p;  b=vv; break;
+                case 5: r=vv; g=p;  b=q;  break;
+            }
+            dst[i]   = Math.min(255, r*rg*255 + 0.5);
+            dst[i+1] = Math.min(255, g*gg*255 + 0.5);
+            dst[i+2] = Math.min(255, b*bg*255 + 0.5);
+            dst[i+3] = src[i+3];
+        }
+    }
+
+    // Draw to a temp canvas then scale up to lc size
+    const tmp = document.createElement('canvas');
+    tmp.width = oW; tmp.height = oH;
+    tmp.getContext('2d').putImageData(out, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    ctx.drawImage(tmp, 0, 0, W, H);
+}
+
+// --- Dithered preview (button-triggered) ---
+function requestDitherPreview() {
+    if (!edSt.base && edSt.entryId == null) return;
+    const btn = document.getElementById('ed-dither-btn');
+    if (edSt.ditherMode) { _revertDither(); return; }
+    btn.classList.add('loading');
+    btn.innerHTML = '<span class="ed-spinner"></span> Dithering…';
+    btn.disabled = true;
+    const params = _buildParams();
+    const url = edSt.entryId != null
+        ? '/entry-preview/' + edSt.entryId
+        : '/image-preview/' + encodeURIComponent(edSt.base);
+    fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(params),
+    }).then(r => { if (!r.ok) throw new Error(); return r.blob(); }).then(blob => {
+        const url = URL.createObjectURL(blob);
+        const prev = document.getElementById('editor-preview');
+        prev.onload = () => URL.revokeObjectURL(url);
+        prev.src = url;
+        prev.style.display = '';
+        document.getElementById('editor-live-canvas').style.display = 'none';
+        edSt.ditherMode = true;
+        btn.classList.remove('loading');
+        btn.classList.add('active');
+        btn.innerHTML = '🎨 Dithered (click to revert)';
+        btn.disabled = false;
+    }).catch(() => {
+        btn.classList.remove('loading');
+        btn.innerHTML = '🎨 Dithered Preview';
+        btn.disabled = false;
+        toast('Preview failed');
+    });
+}
+
+function _revertDither() {
+    if (!edSt.ditherMode) return;
+    edSt.ditherMode = false;
+    document.getElementById('editor-preview').style.display = 'none';
+    document.getElementById('editor-live-canvas').style.display = '';
+    const btn = document.getElementById('ed-dither-btn');
+    btn.classList.remove('active', 'loading');
+    btn.innerHTML = '🎨 Dithered Preview';
+    btn.disabled = false;
+}
 
 function _defaultCrop(origW, origH, orient) {
     const ar = ED_AR[orient];
@@ -1175,20 +1466,21 @@ function _defaultCrop(origW, origH, orient) {
     return {x, y, w, h};
 }
 
-function openEditor(base) {
-    edSt.base = base;
-    edSt.activeCrop = null;
-    edSt.ditherMode = false;
-    document.getElementById('ed-dither-toggle').checked = false;
-    document.getElementById('editor-orig').style.opacity = '1';
+function _openEditorCommon(origSrc, fetchUrl) {
+    edSt.activeCrop = null; edSt.ditherMode = false;
+    edViewZoom = 1; edViewPan = {x:0, y:0};
+    const wrap = document.getElementById('editor-img-wrap');
+    wrap.style.transform = '';
+    const origEl = document.getElementById('editor-orig');
+    origEl.style.transform = '';
+    origEl.style.opacity = '1';
     document.getElementById('editor-preview').style.display = 'none';
+    document.getElementById('editor-live-canvas').style.display = 'none';
+    const btn = document.getElementById('ed-dither-btn');
+    btn.classList.remove('active', 'loading'); btn.innerHTML = '🎨 Dithered Preview'; btn.disabled = false;
     document.getElementById('editor-modal').classList.add('open');
 
-    // Resolve the original image URL from the drawer thumbnail already in the DOM
-    const drawerImg = document.querySelector(`.img-card-list[data-base="${CSS.escape(base)}"] .drawer-orig-img`);
-    const origSrc = drawerImg ? drawerImg.src : '';
-
-    fetch('/image-edit/' + encodeURIComponent(base))
+    fetch(fetchUrl)
         .then(r => r.json())
         .then(data => {
             edSt.hueShift   = typeof data.hue_shift   === 'number' ? data.hue_shift   : 0;
@@ -1198,37 +1490,53 @@ function openEditor(base) {
             edSt.gGain      = typeof data.g_gain      === 'number' ? data.g_gain      : 1;
             edSt.bGain      = typeof data.b_gain      === 'number' ? data.b_gain      : 1;
             edSt.bgColor    = data.bg_color || '#ffffff';
+            edSt.rotate     = typeof data.rotate === 'number' ? data.rotate : 0;
             edSt.cropL      = data.crop_l || null;
             edSt.cropP      = data.crop_p || null;
             _syncSliders();
-            const imgEl = document.getElementById('editor-orig');
-            imgEl.onload = () => {
-                edSt.origW = imgEl.naturalWidth;
-                edSt.origH = imgEl.naturalHeight;
-                if (!edSt.cropL) edSt.cropL = _defaultCrop(edSt.origW, edSt.origH, 'l');
-                if (!edSt.cropP) edSt.cropP = _defaultCrop(edSt.origW, edSt.origH, 'p');
+            origEl.style.transform = edSt.rotate ? `rotate(${edSt.rotate}deg)` : '';
+            function afterLoad() {
+                const nw = origEl.naturalWidth, nh = origEl.naturalHeight;
+                const rotated = edSt.rotate % 180 !== 0;
+                const rw = rotated ? nh : nw, rh = rotated ? nw : nh;
+                if (!edSt.cropL) edSt.cropL = _defaultCrop(rw, rh, 'l');
+                if (!edSt.cropP) edSt.cropP = _defaultCrop(rw, rh, 'p');
                 renderCropRects();
-            };
-            if (imgEl.complete && imgEl.naturalWidth && imgEl.src === origSrc) {
-                edSt.origW = imgEl.naturalWidth; edSt.origH = imgEl.naturalHeight;
-                if (!edSt.cropL) edSt.cropL = _defaultCrop(edSt.origW, edSt.origH, 'l');
-                if (!edSt.cropP) edSt.cropP = _defaultCrop(edSt.origW, edSt.origH, 'p');
-                renderCropRects();
+                _initEditorLiveCanvas();
+            }
+            if (origEl.complete && origEl.naturalWidth && origEl.src === origSrc) {
+                afterLoad();
             } else {
-                imgEl.src = origSrc;
+                origEl.onload = afterLoad;
+                origEl.src = origSrc;
             }
         });
 }
 
+// Open editor for a playlist entry (preferred path)
+function openEditorForEntry(entryId, origSrc) {
+    edSt.entryId = entryId;
+    edSt.base    = null;
+    _openEditorCommon(origSrc, '/entry-edit/' + entryId);
+}
+
+// Legacy: open editor for a general-pool base (kept for backward compat)
+function openEditor(base) {
+    edSt.base    = base;
+    edSt.entryId = null;
+    const drawerImg = document.querySelector(`.img-card-list[data-base="${CSS.escape(base)}"] .drawer-orig-img`);
+    const origSrc = drawerImg ? drawerImg.src : '';
+    _openEditorCommon(origSrc, '/image-edit/' + encodeURIComponent(base));
+}
+
 function closeEditor() {
     document.getElementById('editor-modal').classList.remove('open');
-    // Clean up handles
     ['ecrop-l','ecrop-p'].forEach(id => {
         const el = document.getElementById(id);
-        el.style.display = 'none';
-        el.innerHTML = '';
+        el.style.display = 'none'; el.innerHTML = '';
     });
-    edSt.base = null;
+    edSt.base = null; edSt.entryId = null;
+    edOffCanvas = null; edOffData = null;
 }
 
 // Close on Escape or click outside editor-wrap
@@ -1265,51 +1573,8 @@ function onEdSlider() {
     edSt.bGain      = parseFloat(document.getElementById('ed-b').value);
     edSt.bgColor    = document.getElementById('ed-bg').value;
     _updateSliderLabels();
-    if (edSt.ditherMode) _schedulePreview();
-}
-
-function setDitherMode(on) {
-    edSt.ditherMode = on;
-    const prev = document.getElementById('editor-preview');
-    const orig = document.getElementById('editor-orig');
-    if (on) { _schedulePreview(); }
-    else { prev.style.display = 'none'; orig.style.opacity = '1'; }
-}
-
-function _schedulePreview() {
-    clearTimeout(edPreviewTimer);
-    edPreviewTimer = setTimeout(_fetchPreview, 400);
-}
-
-function _fetchPreview() {
-    if (!edSt.base || !edSt.ditherMode) return;
-    const params = _buildParams();
-    fetch('/image-preview/' + encodeURIComponent(edSt.base), {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(params),
-    }).then(r => r.blob()).then(blob => {
-        const url = URL.createObjectURL(blob);
-        const prev = document.getElementById('editor-preview');
-        prev.onload = () => URL.revokeObjectURL(url);
-        prev.src = url;
-        prev.style.display = '';
-        document.getElementById('editor-orig').style.opacity = '0';
-    }).catch(() => {});
-}
-
-function _buildParams() {
-    return {
-        crop_l: edSt.cropL,
-        crop_p: edSt.cropP,
-        hue_shift: edSt.hueShift,
-        saturation: edSt.saturation,
-        value_adj: edSt.valueAdj,
-        r_gain: edSt.rGain,
-        g_gain: edSt.gGain,
-        b_gain: edSt.bGain,
-        bg_color: edSt.bgColor,
-    };
+    _revertDither();
+    _renderEditorLiveCanvas();
 }
 
 function setActiveCrop(orient) {
@@ -1322,8 +1587,14 @@ function setActiveCrop(orient) {
 function renderCropRects() {
     const imgEl = document.getElementById('editor-orig');
     if (!imgEl.naturalWidth) return;
-    const scX = imgEl.offsetWidth  / imgEl.naturalWidth;
-    const scY = imgEl.offsetHeight / imgEl.naturalHeight;
+    // Crop coords are in rotated-image space; use logical (rotated) dims for scale
+    const rotated = edSt.rotate % 180 !== 0;
+    const natW = rotated ? imgEl.naturalHeight : imgEl.naturalWidth;
+    const natH = rotated ? imgEl.naturalWidth  : imgEl.naturalHeight;
+    // When rotated, the img CSS transform swaps the visual footprint;
+    // offsetWidth/offsetHeight are pre-transform. Treat them as the rotated dims.
+    const scX = imgEl.offsetWidth  / natW;
+    const scY = imgEl.offsetHeight / natH;
     _renderRect('ecrop-l', edSt.cropL, scX, scY, '#22c55e', edSt.activeCrop === 'l');
     _renderRect('ecrop-p', edSt.cropP, scX, scY, '#f97316', edSt.activeCrop === 'p');
 }
@@ -1340,7 +1611,7 @@ function _renderRect(id, rect, scX, scY, color, active) {
     el.innerHTML = '';
     if (!active) return;
 
-    // 8 handles: corners + edge midpoints
+    // 9 handles: 8 resize + 1 center move
     const handles = [
         {cx:0,   cy:0,   type:'tl', cursor:'nwse-resize'},
         {cx:0.5, cy:0,   type:'t',  cursor:'ns-resize'},
@@ -1350,18 +1621,20 @@ function _renderRect(id, rect, scX, scY, color, active) {
         {cx:0.5, cy:1,   type:'b',  cursor:'ns-resize'},
         {cx:0,   cy:1,   type:'bl', cursor:'nesw-resize'},
         {cx:0,   cy:0.5, type:'l',  cursor:'ew-resize'},
+        {cx:0.5, cy:0.5, type:'c',  cursor:'move'},      // center move handle
     ];
     handles.forEach(h => {
         const hEl = document.createElement('div');
         hEl.className = 'ecrop-handle';
         hEl.style.left       = (h.cx * 100) + '%';
         hEl.style.top        = (h.cy * 100) + '%';
-        hEl.style.background = color;
+        hEl.style.background = h.type === 'c' ? 'rgba(255,255,255,0.8)' : color;
         hEl.style.cursor     = h.cursor;
+        if (h.type === 'c') { hEl.style.width = '15px'; hEl.style.height = '15px'; hEl.style.borderRadius = '50%'; }
         el.appendChild(hEl);
         _attachHandleDrag(hEl, h.type, id === 'ecrop-l' ? 'l' : 'p', scX, scY);
     });
-    // Drag inside the rect to move
+    // Interior drag to move (when not clicking a handle)
     el.style.cursor = 'move';
     _attachRectMove(el, id === 'ecrop-l' ? 'l' : 'p', scX, scY);
 }
@@ -1380,7 +1653,10 @@ function _attachHandleDrag(hEl, type, orient, scX, scY) {
             let {x, y, w, h} = rect;
             const right = x + w, bottom = y + h;
 
-            if (type === 'tl') {
+            if (type === 'c') {
+                // Move the whole rect
+                x = rect.x + dx; y = rect.y + dy;
+            } else if (type === 'tl') {
                 w = Math.max(MIN, right - (x + dx)); h = w / ar;
                 x = right - w; y = bottom - h;
             } else if (type === 'tr') {
@@ -1404,9 +1680,9 @@ function _attachHandleDrag(hEl, type, orient, scX, scY) {
                 w = Math.max(MIN, w + dx); h = w / ar;
                 y = (y + rect.h/2) - h/2;
             }
-            const newRect = {x, y, w, h};
-            if (orient === 'l') edSt.cropL = newRect; else edSt.cropP = newRect;
+            if (orient === 'l') edSt.cropL = {x, y, w, h}; else edSt.cropP = {x, y, w, h};
             renderCropRects();
+            _revertDither();
         }
         function onUp() {
             document.removeEventListener('mousemove', onMove);
@@ -1419,16 +1695,17 @@ function _attachHandleDrag(hEl, type, orient, scX, scY) {
 
 function _attachRectMove(el, orient, scX, scY) {
     el.addEventListener('mousedown', e => {
-        if (e.target !== el) return; // don't intercept handle events
+        if (e.target !== el) return;
         e.preventDefault();
         const rect = orient === 'l' ? {...edSt.cropL} : {...edSt.cropP};
         const startX = e.clientX, startY = e.clientY;
         function onMove(ev) {
             const dx = (ev.clientX - startX) / scX;
             const dy = (ev.clientY - startY) / scY;
-            const newRect = {x: rect.x + dx, y: rect.y + dy, w: rect.w, h: rect.h};
-            if (orient === 'l') edSt.cropL = newRect; else edSt.cropP = newRect;
+            if (orient === 'l') edSt.cropL = {x: rect.x+dx, y: rect.y+dy, w: rect.w, h: rect.h};
+            else                edSt.cropP = {x: rect.x+dx, y: rect.y+dy, w: rect.w, h: rect.h};
             renderCropRects();
+            _revertDither();
         }
         function onUp() {
             document.removeEventListener('mousemove', onMove);
@@ -1439,27 +1716,30 @@ function _attachRectMove(el, orient, scX, scY) {
     });
 }
 
-function zoomCrop(dir) {
-    const orient = edSt.activeCrop;
-    if (!orient) return;
-    const rect = orient === 'l' ? edSt.cropL : edSt.cropP;
-    if (!rect) return;
-    const factor = dir > 0 ? 1.15 : 1/1.15;
-    const ar = ED_AR[orient];
-    const cx = rect.x + rect.w / 2, cy = rect.y + rect.h / 2;
-    const nw = Math.max(40, rect.w * factor);
-    const nh = nw / ar;
-    const newRect = {x: cx - nw/2, y: cy - nh/2, w: nw, h: nh};
-    if (orient === 'l') edSt.cropL = newRect; else edSt.cropP = newRect;
-    renderCropRects();
+// Re-render crop rects on window resize
+window.addEventListener('resize', () => { if (edSt.base) { renderCropRects(); _initEditorLiveCanvas(); } });
+
+function _buildParams() {
+    return {
+        crop_l: edSt.cropL,
+        crop_p: edSt.cropP,
+        hue_shift: edSt.hueShift,
+        saturation: edSt.saturation,
+        value_adj: edSt.valueAdj,
+        r_gain: edSt.rGain,
+        g_gain: edSt.gGain,
+        b_gain: edSt.bGain,
+        bg_color: edSt.bgColor,
+        rotate: edSt.rotate,
+    };
 }
 
-// Re-render crop rects when editor image finishes loading / window resizes
-window.addEventListener('resize', () => { if (edSt.base) renderCropRects(); });
-
 function saveEdits() {
-    if (!edSt.base) return;
-    fetch('/image-edit/' + encodeURIComponent(edSt.base), {
+    if (!edSt.base && edSt.entryId == null) return;
+    const url = edSt.entryId != null
+        ? '/entry-edit/' + edSt.entryId
+        : '/image-edit/' + encodeURIComponent(edSt.base);
+    fetch(url, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(_buildParams()),
@@ -1467,6 +1747,76 @@ function saveEdits() {
         if (d.ok) { toast('Edits saved — reconverting in background'); closeEditor(); }
         else toast('Save failed');
     }).catch(() => toast('Save failed'));
+}
+
+// ===== Drawer crop-rect overlay (playlist drawers only) =====
+function openDrawerCropCanvas(card) {
+    const entryId = card.dataset.entryId;
+    if (!entryId) return;
+    const container = card.querySelector('.drawer-img-container');
+    if (!container) return;
+    const imgEl = container.querySelector('.drawer-orig-img');
+    let canvas = container.querySelector('.drawer-crop-canvas');
+    if (!canvas) {
+        canvas = document.createElement('canvas');
+        canvas.className = 'drawer-crop-canvas';
+        container.appendChild(canvas);
+    }
+
+    function doRender() {
+        canvas.width  = imgEl.offsetWidth;
+        canvas.height = imgEl.offsetHeight;
+        drawDrawerCropRects(card);
+    }
+
+    if (card._editData) {
+        if (imgEl.naturalWidth) doRender();
+        else imgEl.addEventListener('load', doRender, {once: true});
+    } else {
+        fetch('/entry-edit/' + entryId)
+            .then(r => r.json())
+            .then(data => {
+                card._editData = data;
+                if (imgEl.naturalWidth) doRender();
+                else imgEl.addEventListener('load', doRender, {once: true});
+            });
+    }
+}
+
+function drawDrawerCropRects(card) {
+    const container = card.querySelector('.drawer-img-container');
+    if (!container) return;
+    const canvas = container.querySelector('.drawer-crop-canvas');
+    const imgEl  = container.querySelector('.drawer-orig-img');
+    if (!canvas || !imgEl || !card._editData) return;
+
+    const W = canvas.width, H = canvas.height;
+    const natW = imgEl.naturalWidth, natH = imgEl.naturalHeight;
+    if (!W || !H || !natW || !natH) return;
+
+    const scX = W / natW, scY = H / natH;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, W, H);
+
+    // Determine toggle states from drawer checkboxes
+    let lOn = false, pOn = false;
+    card.querySelectorAll('input.toggle[data-orient]').forEach(inp => {
+        if (inp.dataset.orient === 'l') lOn = inp.checked;
+        if (inp.dataset.orient === 'p') pOn = inp.checked;
+    });
+
+    function drawRect(cropData, orient, color, on) {
+        if (!on) return;
+        const rect = cropData || _defaultCrop(natW, natH, orient);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.strokeRect(rect.x * scX, rect.y * scY, rect.w * scX, rect.h * scY);
+        ctx.setLineDash([]);
+    }
+
+    drawRect(card._editData.crop_l, 'l', '#22c55e', lOn);
+    drawRect(card._editData.crop_p, 'p', '#f97316', pOn);
 }
 
 
