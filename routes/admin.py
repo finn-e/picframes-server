@@ -17,7 +17,7 @@ from db import (
     load_crops, save_crops, load_image_order, save_image_order,
     load_playlists, load_playlist, create_playlist, update_playlist, delete_playlist,
     get_playlist_images, add_playlist_image, remove_playlist_image, reorder_playlist_images,
-    get_device_playlist_id, set_device_playlist,
+    get_device_playlist_id, set_device_playlist, get_playlist_devices,
     get_global_setting, set_global_setting,
     create_user, delete_user,
     trigger_redownload, flags, ORIGINALS_DIR, IMAGES_DIR, ALLOWED_EXTENSIONS,
@@ -29,6 +29,9 @@ from db import (
     rename_playlist_entry, reorder_playlist_entries, save_playlist_entry_edits,
     get_image_by_uuid, get_or_create_image, get_image_by_filename,
     sanitize_title,
+    # Resolution helpers
+    get_device_resolution, get_playlist_resolution,
+    set_playlist_resolution, clear_playlist_resolution,
 )
 from image import (
     convert_image, ensure_artifacts_for_playlist,
@@ -38,6 +41,7 @@ from image import (
     get_screen_types_for_image, _DEFAULT_SCREEN, convert_image_for_screen,
     convert_entry, ensure_entry_bin_files,
     _default_landscape_crop_img, _default_portrait_crop_img, _crop_with_outfill,
+    screen_size_for_profile,
 )
 
 logger = logging.getLogger(__name__)
@@ -381,16 +385,64 @@ def device_flip():
     return jsonify({'ok': True, 'flip': flip_val})
 
 
+def _device_effective_resolution(mac):
+    """Return the 'WxH' resolution for *mac*, deriving it from hw_profile if needed.
+
+    Priority: explicit resolution column > hw_profile type default > 800x480.
+    Always returns a non-None string.
+    """
+    res = get_device_resolution(mac)
+    if res:
+        return res
+    # Derive from hw_profile stored in the devices table
+    try:
+        conn = db.get_db()
+        row = conn.execute("SELECT hw_profile FROM devices WHERE mac=?",
+                           (mac.lower(),)).fetchone()
+        conn.close()
+        hw = row['hw_profile'] if row else ''
+    except Exception:
+        hw = ''
+    scr_w, scr_h = screen_size_for_profile(hw or '')
+    return f'{scr_w}x{scr_h}'
+
+
 @admin_bp.route('/device_playlist', methods=['POST'])
 def device_playlist_assign():
     data  = request.get_json() or {}
     mac   = data.get('mac', '').strip().lower()
     pid   = data.get('playlist_id')
     if not mac: return jsonify({'ok': False, 'error': 'mac required'}), 400
-    set_device_playlist(mac, int(pid) if pid is not None else None)
-    # Trigger conversion for all screen types now present in this playlist
+
     if pid is not None:
-        ensure_artifacts_for_playlist(int(pid))
+        pid = int(pid)
+        dev_res      = _device_effective_resolution(mac)
+        playlist_res = get_playlist_resolution(pid)
+
+        if playlist_res is None:
+            # Playlist is unlocked: lock it to this device's resolution.
+            set_playlist_resolution(pid, dev_res)
+        elif playlist_res != dev_res:
+            # Resolution mismatch — refuse the assignment.
+            return jsonify({
+                'ok': False,
+                'error': (f'Resolution mismatch: playlist is locked to {playlist_res} '
+                          f'but this device uses {dev_res}'),
+            }), 409
+
+        set_device_playlist(mac, pid)
+        # Trigger conversion for all screen types now present in this playlist
+        ensure_artifacts_for_playlist(pid)
+    else:
+        # Unassigning: remove from current playlist, then clear that playlist's
+        # resolution lock if this was the last device in it.
+        old_pid = get_device_playlist_id(mac)
+        set_device_playlist(mac, None)
+        if old_pid is not None:
+            remaining = get_playlist_devices(old_pid)
+            if not remaining:
+                clear_playlist_resolution(old_pid)
+
     trigger_redownload(mac)
     return jsonify({'ok': True})
 

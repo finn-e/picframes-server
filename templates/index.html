@@ -1034,7 +1034,7 @@ function setDeviceOrient(mac, orientation) {
 }
 function setDevicePlaylist(mac, pid) {
     fetch('/device_playlist', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mac, playlist_id: pid || null})})
-        .then(r=>r.json()).then(d => { if(d.ok) toast('Playlist updated'); });
+        .then(r=>r.json()).then(d => { if(d.ok) toast('Playlist updated'); else toast('Error: ' + (d.error || 'unknown')); });
 }
 function setDeviceFlip(mac, orient, flip) {
     fetch('/device_flip', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mac, orient, flip})})

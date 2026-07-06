@@ -29,7 +29,8 @@ from db import (
 )
 from image import (ensure_bin_files, ensure_bin_files_for_screen,
                    screen_size_for_profile, _artifact_infix,
-                   ensure_entry_bin_files, entry_artifact_prefix)
+                   ensure_entry_bin_files, entry_artifact_prefix,
+                   normalize_device_type, _DEFAULT_SCREEN)
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +109,9 @@ def api_register():
     secret = current_app.secret_key
     device_token = hmac.new(secret.encode(), mac.encode(), hashlib.sha256).hexdigest()[:32]
 
-    from db import check_user_password, get_user_by_username
+    from db import (check_user_password, get_user_by_username,
+                    update_device_resolution)
+
     if password != device_token:
         # Fresh registration requires the credentials of a real user account.
         if not username or not check_user_password(username, password):
@@ -133,6 +136,39 @@ def api_register():
     elif username and dev_cfg.get('name') == mac:
         dev_cfg['name'] = username
         save_config(cfg, owner_id=owner_id)
+
+    # Normalize and persist hw_profile (device type) if provided.
+    hw_profile = data.get('hw_profile', data.get('device_type', '')).strip()
+    if hw_profile:
+        canonical = normalize_device_type(hw_profile)
+        update_device_hw_profile(mac, canonical)
+    else:
+        canonical = None
+
+    # Resolve effective resolution: explicit field wins over type default.
+    # Accept "WxH" string or [W, H] list/array.
+    res_raw = data.get('resolution')
+    resolution = None
+    if res_raw is not None:
+        if isinstance(res_raw, (list, tuple)) and len(res_raw) == 2:
+            try:
+                resolution = f'{int(res_raw[0])}x{int(res_raw[1])}'
+            except (TypeError, ValueError):
+                pass
+        elif isinstance(res_raw, str) and 'x' in res_raw.lower():
+            parts = res_raw.lower().split('x', 1)
+            try:
+                resolution = f'{int(parts[0])}x{int(parts[1])}'
+            except (TypeError, ValueError):
+                pass
+    if resolution is None and canonical:
+        # Fall back to the canonical type's implied default.
+        scr_w, scr_h = screen_size_for_profile(canonical)
+        if (scr_w, scr_h) != _DEFAULT_SCREEN:
+            # Only store if non-default to keep NULL meaning "800x480 default"
+            resolution = f'{scr_w}x{scr_h}'
+    if resolution is not None:
+        update_device_resolution(mac, resolution)
 
     return jsonify({'token': device_token})
 

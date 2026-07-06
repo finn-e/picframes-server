@@ -16,17 +16,42 @@ logger = logging.getLogger(__name__)
 # hw_profile → (landscape_width, landscape_height)
 # ---------------------------------------------------------------------------
 
+# Canonical device-type names are the primary keys.
 SCREEN_TYPES = {
-    'ESP32-S3-PhotoPainter': (800, 480),
-    'XIAO-EE04-7in3':        (800, 480),
+    # Canonical names
+    'Seeed-EE04-Spectra6-7in3':   (800,  480),
+    'Seeed-EE04-Spectra6-13in3':  (1600, 1200),
+    'Waveshare-PhotoPainter-7in3': (800,  480),
+    # Legacy names kept so pre-alias-map entries in the DB still resolve.
+    'ESP32-S3-PhotoPainter': (800,  480),
+    'XIAO-EE04-7in3':        (800,  480),
     'XIAO-EE04-13in3':       (1600, 1200),
 }
 _DEFAULT_SCREEN = (800, 480)
 
+# Alias map: old firmware type strings → canonical name.
+# Any incoming hw_profile should be run through normalize_device_type()
+# before being stored in the database or used for artifact selection.
+DEVICE_TYPE_ALIASES = {
+    'ESP32-S3-PhotoPainter': 'Waveshare-PhotoPainter-7in3',
+    'XIAO-EE04-7in3':        'Seeed-EE04-Spectra6-7in3',
+    'XIAO-EE04-13in3':       'Seeed-EE04-Spectra6-13in3',
+}
+
+
+def normalize_device_type(hw_profile):
+    """Return the canonical device-type name for *hw_profile*.
+
+    Canonical names pass through unchanged; legacy aliases are mapped to their
+    canonical equivalent.  Unknown strings pass through unchanged (future-proof).
+    """
+    return DEVICE_TYPE_ALIASES.get(hw_profile or '', hw_profile or '')
+
 
 def screen_size_for_profile(hw_profile):
     """Return (landscape_w, landscape_h) for a hw_profile string."""
-    return SCREEN_TYPES.get(hw_profile or '', _DEFAULT_SCREEN)
+    canonical = normalize_device_type(hw_profile)
+    return SCREEN_TYPES.get(canonical or '', _DEFAULT_SCREEN)
 
 
 def _artifact_infix(w, h):

@@ -112,6 +112,8 @@ def init_db():
         ('flip_l',     'INTEGER DEFAULT 0'),
         ('flip_p',     'INTEGER DEFAULT 0'),
         ('hw_profile', "TEXT DEFAULT ''"),
+        # resolution stored as 'WxH' string; NULL = use type default / 800x480
+        ('resolution', 'TEXT DEFAULT NULL'),
     ]:
         _col(conn, 'devices', col, defn)
     for col, defn in [
@@ -127,6 +129,9 @@ def init_db():
         _col(conn, 'playlists', col, defn)
         _col(conn, 'devices', col, defn)
         _col(conn, 'image_order', col, defn)
+
+    # resolution lock: locked to 'WxH' by the first device assigned; NULL = unlocked
+    _col(conn, 'playlists', 'resolution', 'TEXT DEFAULT NULL')
 
     # Battery history
     c.execute("""CREATE TABLE IF NOT EXISTS battery_history (
@@ -626,6 +631,72 @@ def update_device_hw_profile(mac, hw_profile):
     except Exception as e:
         logger.error(f"update_device_hw_profile({mac}): {e}")
         return False
+
+
+def get_device_resolution(mac):
+    """Return the stored 'WxH' resolution for *mac*, or None if not set."""
+    mac = mac.lower()
+    try:
+        conn = get_db()
+        row = conn.execute("SELECT resolution FROM devices WHERE mac=?", (mac,)).fetchone()
+        conn.close()
+        return row['resolution'] if row else None
+    except Exception as e:
+        logger.error(f"get_device_resolution({mac}): {e}")
+        return None
+
+
+def update_device_resolution(mac, resolution):
+    """Persist the 'WxH' resolution string for a device.  Returns True if changed."""
+    mac = mac.lower()
+    try:
+        conn = get_db()
+        row = conn.execute("SELECT resolution FROM devices WHERE mac=?", (mac,)).fetchone()
+        old = row['resolution'] if row else None
+        changed = (old != resolution)
+        if changed:
+            conn.execute("UPDATE devices SET resolution=? WHERE mac=?", (resolution, mac))
+            conn.commit()
+        conn.close()
+        return changed
+    except Exception as e:
+        logger.error(f"update_device_resolution({mac}): {e}")
+        return False
+
+
+def get_playlist_resolution(playlist_id):
+    """Return the locked 'WxH' resolution for a playlist, or None if unlocked."""
+    try:
+        conn = get_db()
+        row = conn.execute("SELECT resolution FROM playlists WHERE id=?",
+                           (int(playlist_id),)).fetchone()
+        conn.close()
+        return row['resolution'] if row else None
+    except Exception as e:
+        logger.error(f"get_playlist_resolution({playlist_id}): {e}")
+        return None
+
+
+def set_playlist_resolution(playlist_id, resolution):
+    """Lock *playlist_id* to *resolution* ('WxH' string)."""
+    try:
+        conn = get_db()
+        conn.execute("UPDATE playlists SET resolution=? WHERE id=?",
+                     (resolution, int(playlist_id)))
+        conn.commit(); conn.close()
+    except Exception as e:
+        logger.error(f"set_playlist_resolution({playlist_id}): {e}")
+
+
+def clear_playlist_resolution(playlist_id):
+    """Clear the resolution lock for *playlist_id* (unlocks it for new assignments)."""
+    try:
+        conn = get_db()
+        conn.execute("UPDATE playlists SET resolution=NULL WHERE id=?",
+                     (int(playlist_id),))
+        conn.commit(); conn.close()
+    except Exception as e:
+        logger.error(f"clear_playlist_resolution({playlist_id}): {e}")
 
 
 def get_playlists_for_image(base):
