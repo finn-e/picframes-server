@@ -342,6 +342,7 @@
                         </label>
                     </div>
                 </div>
+                <button type="button" class="btn btn-sm" style="font-size:0.78rem;" onclick="repairDevice('{{ dev.mac }}')">Re-pair</button>
                 <button type="button" class="btn btn-danger btn-sm" onclick="removeDevice(this, '{{ dev.mac }}')">✕</button>
             </div>
             {% endfor %}
@@ -1044,6 +1045,13 @@ function setDeviceFlip(mac, orient, flip) {
 function setDeviceDebug(mac, debug) {
     fetch('/device_debug', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mac, debug})})
         .then(r=>r.json()).then(d => { if(!d.ok) toast('Error'); });
+}
+function repairDevice(mac) {
+    fetch('/device_repair', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mac})})
+        .then(r=>r.json()).then(d => {
+            if(d.ok) toast('Pairing window open (10 min) — reboot the frame');
+            else toast('Error: ' + (d.error || 'unknown'));
+        });
 }
 function removeDevice(btn, mac) {
     const row = btn.closest('.device-row');

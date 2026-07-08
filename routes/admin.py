@@ -6,6 +6,7 @@ import io
 import logging
 import os
 import threading
+import time
 
 import numpy as np
 from flask import Blueprint, Response, jsonify, redirect, request, session, url_for
@@ -365,6 +366,24 @@ def device_debug():
     if not device_found: return jsonify({'ok': False, 'error': 'device not found'}), 404
     save_config(cfg)
     return jsonify({'ok': True, 'debug': dbg_val})
+
+
+@admin_bp.route('/device_repair', methods=['POST'])
+def device_repair():
+    data = request.get_json() or {}
+    mac  = (data.get('mac') or '').strip().lower()
+    if not mac:
+        return jsonify({'ok': False, 'error': 'mac required'}), 400
+    cfg = load_config(); device_found = False
+    for dev in cfg.get('devices', []):
+        if dev['mac'].lower() == mac:
+            dev['repair_until'] = int(time.time()) + 600
+            device_found = True; break
+    if not device_found:
+        return jsonify({'ok': False, 'error': 'device not found'}), 404
+    save_config(cfg)
+    repair_until = next(d['repair_until'] for d in cfg['devices'] if d['mac'].lower() == mac)
+    return jsonify({'ok': True, 'repair_until': repair_until})
 
 
 @admin_bp.route('/device_flip', methods=['POST'])

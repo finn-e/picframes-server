@@ -113,6 +113,60 @@ def api_register():
                     update_device_resolution)
 
     if password != device_token:
+        # Check re-pair window before requiring credentials.
+        # Only applies to already-registered MACs — never creates new devices.
+        existing_owner = get_device_owner_id(mac)
+        if existing_owner is not None:
+            try:
+                conn = db.get_db()
+                row = conn.execute(
+                    "SELECT repair_until FROM devices WHERE mac=?", (mac,)).fetchone()
+                conn.close()
+                repair_until = row['repair_until'] if row and row['repair_until'] else 0
+            except Exception:
+                repair_until = 0
+            if repair_until and int(time.time()) < repair_until:
+                # One-shot: clear the window immediately.
+                try:
+                    conn = db.get_db()
+                    conn.execute("UPDATE devices SET repair_until=NULL WHERE mac=?", (mac,))
+                    conn.commit(); conn.close()
+                except Exception as e:
+                    logger.warning(f"api_register: failed to clear repair_until for {mac}: {e}")
+                logger.info(f"re-pair window used by {mac}")
+                # Fall through with existing_owner so the token is returned below.
+                owner_id = existing_owner
+                cfg     = load_config(owner_id=owner_id)
+                devices = cfg.get('devices', [])
+                dev_cfg = next((d for d in devices if d['mac'].lower() == mac), None)
+                # Resolve hw_profile/resolution as normal then return token.
+                hw_profile = data.get('hw_profile', data.get('device_type', '')).strip()
+                if hw_profile:
+                    canonical = normalize_device_type(hw_profile)
+                    update_device_hw_profile(mac, canonical)
+                else:
+                    canonical = None
+                res_raw = data.get('resolution')
+                resolution = None
+                if res_raw is not None:
+                    if isinstance(res_raw, (list, tuple)) and len(res_raw) == 2:
+                        try:
+                            resolution = f'{int(res_raw[0])}x{int(res_raw[1])}'
+                        except (TypeError, ValueError):
+                            pass
+                    elif isinstance(res_raw, str) and 'x' in res_raw.lower():
+                        parts = res_raw.lower().split('x', 1)
+                        try:
+                            resolution = f'{int(parts[0])}x{int(parts[1])}'
+                        except (TypeError, ValueError):
+                            pass
+                if resolution is None and canonical:
+                    scr_w, scr_h = screen_size_for_profile(canonical)
+                    if (scr_w, scr_h) != _DEFAULT_SCREEN:
+                        resolution = f'{scr_w}x{scr_h}'
+                if resolution is not None:
+                    update_device_resolution(mac, resolution)
+                return jsonify({'token': device_token})
         # Fresh registration requires the credentials of a real user account.
         if not username or not check_user_password(username, password):
             return jsonify({'error': 'invalid credentials'}), 403

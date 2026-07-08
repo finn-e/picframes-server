@@ -118,6 +118,8 @@ def init_db():
         ('fw_version', 'TEXT DEFAULT NULL'),
         # show_fw: 1 = show firmware version in caption overlay on device
         ('show_fw',    'INTEGER DEFAULT 0'),
+        # re-pair window: epoch seconds until which token re-issue is allowed
+        ('repair_until', 'INTEGER DEFAULT NULL'),
     ]:
         _col(conn, 'devices', col, defn)
     for col, defn in [
@@ -567,7 +569,7 @@ def load_config(owner_id=None):
         if row:
             defaults['wake_timeout'] = int(row['value'])
         rows = conn.execute(
-            "SELECT mac,name,orientation,debug,mode,shuffle,flip_l,flip_p,images_json,hw_profile,fw_version,show_fw FROM devices WHERE owner_id=?", (owner_id,)
+            "SELECT mac,name,orientation,debug,mode,shuffle,flip_l,flip_p,images_json,hw_profile,fw_version,show_fw,repair_until FROM devices WHERE owner_id=?", (owner_id,)
         ).fetchall()
         defaults['devices'] = [{
             "mac": r['mac'].lower(), "name": r['name'],
@@ -578,6 +580,7 @@ def load_config(owner_id=None):
             "hw_profile": r['hw_profile'] or '',
             "fw_version": r['fw_version'] or '',
             "show_fw": bool(r['show_fw']),
+            "repair_until": int(r['repair_until']) if r['repair_until'] is not None else None,
         } for r in rows]
         conn.close()
     except Exception as e:
@@ -594,8 +597,8 @@ def save_config(cfg, owner_id=None):
         conn.execute("DELETE FROM devices WHERE owner_id=?", (owner_id,))
         for dev in cfg.get('devices', []):
             conn.execute("""INSERT OR REPLACE INTO devices
-                (mac,name,orientation,debug,mode,shuffle,flip_l,flip_p,images_json,hw_profile,fw_version,show_fw,owner_id)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+                (mac,name,orientation,debug,mode,shuffle,flip_l,flip_p,images_json,hw_profile,fw_version,show_fw,repair_until,owner_id)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
                 dev.get('mac','').lower(), dev.get('name',''),
                 dev.get('orientation','landscape'), 1 if dev.get('debug') else 0,
                 dev.get('mode','group'), 1 if dev.get('shuffle') else 0,
@@ -604,6 +607,7 @@ def save_config(cfg, owner_id=None):
                 dev.get('hw_profile', ''),
                 dev.get('fw_version') or None,
                 1 if dev.get('show_fw') else 0,
+                dev.get('repair_until') or None,
                 owner_id))
         conn.commit(); conn.close()
         return True
