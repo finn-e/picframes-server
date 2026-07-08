@@ -348,6 +348,7 @@ def api_update():
 
     # Persist hw_profile so screen-type is known for artifact selection;
     # if it changed, trigger artifact conversion for this device's playlist.
+    # Also update last_seen/device_ips and fw_version for authenticated devices.
     mac = _get_mac()
     if mac:
         changed = update_device_hw_profile(mac, hw)
@@ -356,6 +357,23 @@ def api_update():
             if pid is not None:
                 from image import ensure_artifacts_for_playlist
                 ensure_artifacts_for_playlist(pid)
+
+        # Update firmware version from header if device is registered
+        owner_id = get_device_owner_id(mac)
+        if owner_id is not None:
+            dev_cfg = None
+            cfg = load_config(owner_id=owner_id)
+            dev_cfg = next((d for d in cfg.get('devices', [])
+                            if d['mac'].lower() == mac), None)
+            if dev_cfg is not None:
+                fw_ver_hdr = (request.headers.get('X-Firmware-Version', '') or '').strip()
+                if fw_ver_hdr and fw_ver_hdr != (dev_cfg.get('fw_version') or ''):
+                    update_device_fw_version(mac, fw_ver_hdr)
+                with state_lock:
+                    state = load_state()
+                    state.setdefault('last_seen', {})[mac]  = int(time.time())
+                    state.setdefault('device_ips', {})[mac] = _caller_ip()
+                    save_state(state)
 
     url = _get_update_url(hw, version)
     return (url, 200) if url else ("", 204)
