@@ -53,3 +53,26 @@ def test_device_repair_endpoint_sets_column(client, logged_in):
     assert row is not None
     assert row['repair_until'] is not None
     assert row['repair_until'] >= before + 599
+
+
+def test_token_reregister_keeps_owner_despite_username(client):
+    """A token-authenticated re-register with a stale stored username must not
+    move or duplicate the device under that username's account."""
+    register_device(client)  # owner: admin (id 1)
+    # Create a second user and move the device to them.
+    conn = db.get_db()
+    conn.execute("INSERT INTO users (username, password_hash, is_admin) VALUES ('fin', 'x', 0)")
+    fin_id = conn.execute("SELECT id FROM users WHERE username='fin'").fetchone()['id']
+    conn.execute("UPDATE devices SET owner_id=? WHERE mac=?", (fin_id, TEST_MAC))
+    conn.commit(); conn.close()
+
+    # Device re-registers with its VALID token but stale username 'admin'.
+    r = client.post('/api/register', json={
+        'mac': TEST_MAC, 'username': 'admin', 'password': device_token(TEST_MAC)})
+    assert r.status_code == 200
+
+    conn = db.get_db()
+    rows = conn.execute("SELECT owner_id FROM devices WHERE mac=?", (TEST_MAC,)).fetchall()
+    conn.close()
+    assert len(rows) == 1
+    assert rows[0]['owner_id'] == fin_id  # ownership unchanged

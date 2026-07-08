@@ -170,15 +170,18 @@ def api_register():
         # Fresh registration requires the credentials of a real user account.
         if not username or not check_user_password(username, password):
             return jsonify({'error': 'invalid credentials'}), 403
+        creds_verified = True
+    else:
+        creds_verified = False
 
-    owner_id = None
-    if username:
+    # Ownership: an existing device only moves to the claimed username when
+    # real user credentials were verified. A token-authenticated re-register
+    # must never change (or duplicate) ownership based on the stored username.
+    owner_id = get_device_owner_id(mac)
+    if username and (creds_verified or owner_id is None):
         user = get_user_by_username(username)
         if user:
             owner_id = user['id']
-    if owner_id is None:
-        # Token-authenticated re-registration keeps the existing owner.
-        owner_id = get_device_owner_id(mac)
     if owner_id is None:
         return jsonify({'error': 'unknown user'}), 403
 
