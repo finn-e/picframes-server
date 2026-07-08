@@ -578,6 +578,7 @@ def _daily_zip_inner():
     mac_lower = mac
     with state_lock:
         state = load_state()
+        force_redownload = state.get('redownload', {}).get(mac_lower, False)
         state.setdefault('redownload', {})[mac_lower] = False
         save_state(state)
 
@@ -623,7 +624,7 @@ def _daily_zip_inner():
         entry_titles = [e['title'] for e in entries]
         zip_version  = hashlib.md5((','.join(entry_titles) + orientation).encode()).hexdigest()[:8]
         client_version = request.args.get('version', '').strip()
-        if client_version and client_version == zip_version:
+        if not force_redownload and client_version and client_version == zip_version:
             return Response(status=304)
 
         buf = io.BytesIO()
@@ -648,7 +649,7 @@ def _daily_zip_inner():
 
         zip_version  = hashlib.md5((','.join(active_bases) + orientation).encode()).hexdigest()[:8]
         client_version = request.args.get('version', '').strip()
-        if client_version and client_version == zip_version:
+        if not force_redownload and client_version and client_version == zip_version:
             return Response(status=304)
 
         candidates = list(active_bases)

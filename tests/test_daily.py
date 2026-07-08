@@ -51,6 +51,8 @@ def test_daily_zip_manifest_matches_bins(logged_in):
 
 def test_daily_zip_304_on_matching_version(logged_in):
     setup_playlist_device(logged_in, bases=('alpha',))
+    # setup assigns the device, which sets the redownload flag; consume it first.
+    logged_in.get('/api/daily-zip', headers=device_headers())
     version = logged_in.get('/api/daily-config',
                             headers=device_headers()).get_json()['daily_zip_version']
     r = logged_in.get(f'/api/daily-zip?version={version}', headers=device_headers())
@@ -94,11 +96,16 @@ def test_daily_zip_clears_redownload_flag(logged_in):
     assert db.load_state()['redownload'][TEST_MAC] is False
 
 
-def test_daily_zip_clears_redownload_even_on_304(logged_in):
+def test_daily_zip_force_redownload_bypasses_304(logged_in):
+    """When trigger_redownload is set, daily-zip returns the full zip even if the
+    version matches — so the device can recover from a missed/empty download."""
     setup_playlist_device(logged_in, bases=('alpha',))
+    # Consume the setup-triggered redownload so we have a clean baseline.
+    logged_in.get('/api/daily-zip', headers=device_headers())
     version = logged_in.get('/api/daily-config',
                             headers=device_headers()).get_json()['daily_zip_version']
+    # Manually flag for redownload.
     db.trigger_redownload(TEST_MAC)
     r = logged_in.get(f'/api/daily-zip?version={version}', headers=device_headers())
-    assert r.status_code == 304
-    assert db.load_state()['redownload'][TEST_MAC] is False
+    assert r.status_code == 200  # forced, not 304
+    assert db.load_state()['redownload'][TEST_MAC] is False  # flag cleared
