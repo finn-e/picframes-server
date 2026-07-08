@@ -23,7 +23,7 @@ from db import (
     get_device_playlist_id, get_playlist_settings, set_device_playlist,
     get_global_setting, trigger_redownload, state_lock, IMAGES_DIR,
     record_battery, get_battery_history,
-    update_device_hw_profile, get_device_owner_id,
+    update_device_hw_profile, update_device_fw_version, get_device_owner_id,
     # Entry-based helpers
     get_device_active_entries, get_playlist_entry,
 )
@@ -371,6 +371,11 @@ def _daily_config_inner():
         return err
     mac = dev_cfg['mac'].lower()
 
+    # Update fw_version from header if provided and changed
+    fw_ver_hdr = (request.headers.get('X-Firmware-Version', '') or '').strip()
+    if fw_ver_hdr and fw_ver_hdr != (dev_cfg.get('fw_version') or ''):
+        update_device_fw_version(mac, fw_ver_hdr)
+
     orientation  = dev_cfg.get('orientation', 'landscape')
     pid          = get_device_playlist_id(mac)
     pl_settings  = get_playlist_settings(pid)
@@ -400,6 +405,7 @@ def _daily_config_inner():
         'enabled':           {str(k): dict(v) for k, v in load_enabled().items()},
         'landscape_flipped': bool(dev_cfg.get('flip_l', False)),
         'portrait_flipped':  bool(dev_cfg.get('flip_p', False)),
+        'show_fw_version':   bool(dev_cfg.get('show_fw', False)),
     })
 
 

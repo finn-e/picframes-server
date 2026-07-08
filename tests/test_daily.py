@@ -3,7 +3,7 @@ import io
 import zipfile
 
 import db
-from tests.conftest import (TEST_MAC, device_headers, setup_playlist_device)
+from tests.conftest import (TEST_MAC, device_headers, setup_playlist_device, register_device)
 
 
 def _zip_names(resp):
@@ -109,3 +109,65 @@ def test_daily_zip_force_redownload_bypasses_304(logged_in):
     r = logged_in.get(f'/api/daily-zip?version={version}', headers=device_headers())
     assert r.status_code == 200  # forced, not 304
     assert db.load_state()['redownload'][TEST_MAC] is False  # flag cleared
+
+
+def test_fw_version_stored_from_header(logged_in):
+    """X-Firmware-Version header on /api/daily-config is persisted to devices.fw_version."""
+    register_device(logged_in, TEST_MAC)
+    hdrs = dict(device_headers())
+    hdrs['X-Firmware-Version'] = '1.2.3'
+    logged_in.get('/api/daily-config', headers=hdrs)
+    cfg = db.load_config(owner_id=1)
+    dev = next(d for d in cfg['devices'] if d['mac'] == TEST_MAC)
+    assert dev['fw_version'] == '1.2.3'
+
+
+def test_fw_version_not_overwritten_if_same(logged_in):
+    """fw_version is only updated when it actually changes."""
+    register_device(logged_in, TEST_MAC)
+    hdrs = dict(device_headers())
+    hdrs['X-Firmware-Version'] = '2.0.0'
+    logged_in.get('/api/daily-config', headers=hdrs)
+    # Second call with same version — should not error
+    r = logged_in.get('/api/daily-config', headers=hdrs)
+    assert r.status_code == 200
+    cfg = db.load_config(owner_id=1)
+    dev = next(d for d in cfg['devices'] if d['mac'] == TEST_MAC)
+    assert dev['fw_version'] == '2.0.0'
+
+
+def test_show_fw_toggle_endpoint(logged_in):
+    """POST /device_show_fw toggles the show_fw flag on a device."""
+    register_device(logged_in, TEST_MAC)
+    r = logged_in.post('/device_show_fw',
+                       json={'mac': TEST_MAC, 'show_fw': True},
+                       content_type='application/json')
+    assert r.status_code == 200
+    assert r.get_json()['ok'] is True
+    assert r.get_json()['show_fw'] is True
+    cfg = db.load_config(owner_id=1)
+    dev = next(d for d in cfg['devices'] if d['mac'] == TEST_MAC)
+    assert dev['show_fw'] is True
+    # Toggle off
+    logged_in.post('/device_show_fw',
+                   json={'mac': TEST_MAC, 'show_fw': False},
+                   content_type='application/json')
+    cfg = db.load_config(owner_id=1)
+    dev = next(d for d in cfg['devices'] if d['mac'] == TEST_MAC)
+    assert dev['show_fw'] is False
+
+
+def test_daily_config_includes_show_fw_version(logged_in):
+    """show_fw_version field is returned in /api/daily-config response."""
+    register_device(logged_in, TEST_MAC)
+    r = logged_in.get('/api/daily-config', headers=device_headers())
+    body = r.get_json()
+    assert 'show_fw_version' in body
+    assert body['show_fw_version'] is False
+
+    # Enable show_fw and re-check
+    logged_in.post('/device_show_fw',
+                   json={'mac': TEST_MAC, 'show_fw': True},
+                   content_type='application/json')
+    r = logged_in.get('/api/daily-config', headers=device_headers())
+    assert r.get_json()['show_fw_version'] is True

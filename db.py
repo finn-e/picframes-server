@@ -114,6 +114,10 @@ def init_db():
         ('hw_profile', "TEXT DEFAULT ''"),
         # resolution stored as 'WxH' string; NULL = use type default / 800x480
         ('resolution', 'TEXT DEFAULT NULL'),
+        # firmware version reported by device via X-Firmware-Version header
+        ('fw_version', 'TEXT DEFAULT NULL'),
+        # show_fw: 1 = show firmware version in caption overlay on device
+        ('show_fw',    'INTEGER DEFAULT 0'),
     ]:
         _col(conn, 'devices', col, defn)
     for col, defn in [
@@ -563,7 +567,7 @@ def load_config(owner_id=None):
         if row:
             defaults['wake_timeout'] = int(row['value'])
         rows = conn.execute(
-            "SELECT mac,name,orientation,debug,mode,shuffle,flip_l,flip_p,images_json,hw_profile FROM devices WHERE owner_id=?", (owner_id,)
+            "SELECT mac,name,orientation,debug,mode,shuffle,flip_l,flip_p,images_json,hw_profile,fw_version,show_fw FROM devices WHERE owner_id=?", (owner_id,)
         ).fetchall()
         defaults['devices'] = [{
             "mac": r['mac'].lower(), "name": r['name'],
@@ -572,6 +576,8 @@ def load_config(owner_id=None):
             "flip_l": bool(r['flip_l']), "flip_p": bool(r['flip_p']),
             "images": json.loads(r['images_json'] or '[]'),
             "hw_profile": r['hw_profile'] or '',
+            "fw_version": r['fw_version'] or '',
+            "show_fw": bool(r['show_fw']),
         } for r in rows]
         conn.close()
     except Exception as e:
@@ -588,14 +594,17 @@ def save_config(cfg, owner_id=None):
         conn.execute("DELETE FROM devices WHERE owner_id=?", (owner_id,))
         for dev in cfg.get('devices', []):
             conn.execute("""INSERT OR REPLACE INTO devices
-                (mac,name,orientation,debug,mode,shuffle,flip_l,flip_p,images_json,hw_profile,owner_id)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (
+                (mac,name,orientation,debug,mode,shuffle,flip_l,flip_p,images_json,hw_profile,fw_version,show_fw,owner_id)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
                 dev.get('mac','').lower(), dev.get('name',''),
                 dev.get('orientation','landscape'), 1 if dev.get('debug') else 0,
                 dev.get('mode','group'), 1 if dev.get('shuffle') else 0,
                 1 if dev.get('flip_l') else 0, 1 if dev.get('flip_p') else 0,
                 json.dumps(dev.get('images', [])),
-                dev.get('hw_profile', ''), owner_id))
+                dev.get('hw_profile', ''),
+                dev.get('fw_version') or None,
+                1 if dev.get('show_fw') else 0,
+                owner_id))
         conn.commit(); conn.close()
         return True
     except Exception as e:
@@ -613,6 +622,24 @@ def get_device_owner_id(mac):
     except Exception as e:
         logger.error(f"get_device_owner_id({mac}): {e}")
         return None
+
+
+def update_device_fw_version(mac, fw_version):
+    """Persist fw_version for a device. Returns True if the stored value changed."""
+    mac = mac.lower()
+    try:
+        conn = get_db()
+        row = conn.execute("SELECT fw_version FROM devices WHERE mac=?", (mac,)).fetchone()
+        old = row['fw_version'] if row else None
+        changed = (old != fw_version)
+        if changed:
+            conn.execute("UPDATE devices SET fw_version=? WHERE mac=?", (fw_version, mac))
+            conn.commit()
+        conn.close()
+        return changed
+    except Exception as e:
+        logger.error(f"update_device_fw_version({mac}): {e}")
+        return False
 
 
 def update_device_hw_profile(mac, hw_profile):

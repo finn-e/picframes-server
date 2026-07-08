@@ -327,6 +327,7 @@
                     </div>
                     <div style="display:flex; align-items:center; gap:0.5rem; margin-top:0.2rem; flex-wrap:wrap;">
                         <span class="device-mac">{{ dev.mac }}</span>
+                        <span style="font-size:0.78rem; color:var(--muted);">FW: {{ dev.fw_version or 'unknown' }}</span>
                         <label style="font-size:0.78rem;" class="toggle-wrap">
                             <input type="checkbox" class="toggle" {% if dev.flip_l %}checked{% endif %} onchange="setDeviceFlip('{{ dev.mac }}', 'l', this.checked)" title="Flip landscape">
                             <span>Flip L</span>
@@ -338,6 +339,10 @@
                         <label style="font-size:0.78rem;" class="toggle-wrap">
                             <input type="checkbox" class="toggle" {% if dev.debug %}checked{% endif %} onchange="setDeviceDebug('{{ dev.mac }}', this.checked)" title="Debug overlay">
                             <span>Debug</span>
+                        </label>
+                        <label style="font-size:0.78rem;" class="toggle-wrap">
+                            <input type="checkbox" class="toggle" {% if dev.show_fw %}checked{% endif %} onchange="setDeviceShowFw('{{ dev.mac }}', this.checked)" title="Show firmware version on frame">
+                            <span>Show FW</span>
                         </label>
                     </div>
                 </div>
@@ -1042,6 +1047,10 @@ function setDeviceFlip(mac, orient, flip) {
 }
 function setDeviceDebug(mac, debug) {
     fetch('/device_debug', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mac, debug})})
+        .then(r=>r.json()).then(d => { if(!d.ok) toast('Error'); });
+}
+function setDeviceShowFw(mac, show_fw) {
+    fetch('/device_show_fw', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mac, show_fw})})
         .then(r=>r.json()).then(d => { if(!d.ok) toast('Error'); });
 }
 function removeDevice(btn, mac) {
