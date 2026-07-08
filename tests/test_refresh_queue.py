@@ -63,9 +63,9 @@ def test_queue_entry_served_after_zip_refetch_and_autocleared(logged_in):
     assert body['image_index'] == 2                 # in-pool entry → pool index
     state = db.load_state()
     assert state['queued_image'] is None            # auto-cleared on hand-out
-    # Stored index is the FOLLOWING one (wrapped): eids[2] is the last of 3,
-    # so the next wake-poll wraps to 0 instead of re-serving the queued image.
-    assert state['playlist_indices'][str(pid)] == 0
+    # Stored index is q_idx itself; firmware sends skip=True on the next wake
+    # which will advance to q_idx+1 naturally (eids[2] is last of 3 → wraps to 0).
+    assert state['playlist_indices'][str(pid)] == 2
 
 
 def test_queued_out_of_pool_entry_gets_appended_index(logged_in):
@@ -86,16 +86,16 @@ def test_queued_out_of_pool_entry_gets_appended_index(logged_in):
 
 def test_queued_served_once_then_next_poll_advances(logged_in):
     """The bug fix: a queued image is handed out exactly once; the following
-    non-skip wake-poll returns queued_idx+1 and the slideshow continues."""
+    skip=True wake-poll (firmware always sends skip=True on timer wake) returns
+    queued_idx+1 and the slideshow continues from there."""
     pid, eids, _ = setup_playlist_device(logged_in, bases=('a', 'b', 'c'))
     logged_in.post('/api/queue', json={
         'entry_id': eids[1], 'source': TEST_MAC, 'playlist_id': pid})
     logged_in.get('/api/daily-zip', headers=device_headers())
 
-    assert _refresh(logged_in)['image_index'] == 1  # queued entry, served once
-    assert _refresh(logged_in)['image_index'] == 2  # next poll: queued_idx + 1
-    assert _refresh(logged_in)['image_index'] == 2  # then holds (non-skip poll)
-    assert _refresh(logged_in, skip=True)['image_index'] == 0  # skip wraps on
+    assert _refresh(logged_in)['image_index'] == 1           # queued, served once
+    assert _refresh(logged_in, skip=True)['image_index'] == 2  # next wake: skip advances to q+1
+    assert _refresh(logged_in, skip=True)['image_index'] == 0  # continues wrapping
 
 
 def test_queued_last_entry_next_poll_wraps_to_zero(logged_in):
@@ -104,8 +104,8 @@ def test_queued_last_entry_next_poll_wraps_to_zero(logged_in):
         'entry_id': eids[2], 'source': TEST_MAC, 'playlist_id': pid})
     logged_in.get('/api/daily-zip', headers=device_headers())
 
-    assert _refresh(logged_in)['image_index'] == 2  # queued = last pool entry
-    assert _refresh(logged_in)['image_index'] == 0  # wraps past the end
+    assert _refresh(logged_in)['image_index'] == 2            # queued = last pool entry
+    assert _refresh(logged_in, skip=True)['image_index'] == 0  # skip wraps past end
 
 
 def test_queued_out_of_pool_next_poll_wraps_to_zero(logged_in):

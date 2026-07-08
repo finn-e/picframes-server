@@ -525,19 +525,17 @@ def _refresh_inner():
             if not redownload:
                 current_idx              = q_idx
                 state['queued_image']    = None
-                # Persist the FOLLOWING index, not the queued one: the device's
-                # normal wake-poll (skip=False) returns the stored index without
-                # advancing, so storing q_idx would re-serve the queued image
-                # forever. Storing q_idx+1 (wrapped) makes the frame show the
-                # queued image once, then continue the playlist on the next
-                # poll. An out-of-pool queued image (q_idx == len(pool), i.e.
-                # appended by daily-zip) has no in-pool successor → wrap to 0.
+                # Store q_idx itself: firmware now sends skip=True on every
+                # timer wake, so the NEXT poll will advance from q_idx to
+                # q_idx+1 naturally. Out-of-pool queued images (q_idx ==
+                # len(pool)) have no in-pool position to store; wrap to 0 so
+                # the next skip lands on image 0.
                 n = len(pool)
-                next_idx = (q_idx + 1) % n if 0 <= q_idx < n else 0
+                store_idx = q_idx if 0 <= q_idx < n else 0
                 if sync and pid is not None:
-                    state.setdefault('playlist_indices', {})[str(pid)] = next_idx
+                    state.setdefault('playlist_indices', {})[str(pid)] = store_idx
                 else:
-                    state.setdefault('device_indices', {})[mac]        = next_idx
+                    state.setdefault('device_indices', {})[mac]        = store_idx
 
         save_state(state)
 
