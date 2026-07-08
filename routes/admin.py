@@ -367,29 +367,6 @@ def device_debug():
     return jsonify({'ok': True, 'debug': dbg_val})
 
 
-@admin_bp.route('/device_show_fw', methods=['GET', 'POST'])
-def device_show_fw():
-    if request.method == 'POST':
-        if request.is_json:
-            data       = request.get_json() or {}
-            mac        = data.get('mac')
-            show_fw_val = bool(data.get('show_fw', False))
-        else:
-            mac        = request.form.get('mac')
-            show_fw_val = request.form.get('show_fw') in ('1', 'true', 'True')
-    else:
-        mac        = request.args.get('mac')
-        show_fw_val = request.args.get('show_fw') in ('1', 'true', 'True')
-    if not mac: return jsonify({'ok': False, 'error': 'mac required'}), 400
-    cfg = load_config(); device_found = False
-    for dev in cfg.get('devices', []):
-        if dev['mac'].lower() == mac.lower():
-            dev['show_fw'] = show_fw_val; device_found = True; break
-    if not device_found: return jsonify({'ok': False, 'error': 'device not found'}), 404
-    save_config(cfg)
-    return jsonify({'ok': True, 'show_fw': show_fw_val})
-
-
 @admin_bp.route('/device_flip', methods=['POST'])
 def device_flip():
     data        = request.get_json() or {}

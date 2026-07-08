@@ -340,10 +340,6 @@
                             <input type="checkbox" class="toggle" {% if dev.debug %}checked{% endif %} onchange="setDeviceDebug('{{ dev.mac }}', this.checked)" title="Debug overlay">
                             <span>Debug</span>
                         </label>
-                        <label style="font-size:0.78rem;" class="toggle-wrap">
-                            <input type="checkbox" class="toggle" {% if dev.show_fw %}checked{% endif %} onchange="setDeviceShowFw('{{ dev.mac }}', this.checked)" title="Show firmware version on frame">
-                            <span>Show FW</span>
-                        </label>
                     </div>
                 </div>
                 <button type="button" class="btn btn-danger btn-sm" onclick="removeDevice(this, '{{ dev.mac }}')">✕</button>
@@ -1047,10 +1043,6 @@ function setDeviceFlip(mac, orient, flip) {
 }
 function setDeviceDebug(mac, debug) {
     fetch('/device_debug', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mac, debug})})
-        .then(r=>r.json()).then(d => { if(!d.ok) toast('Error'); });
-}
-function setDeviceShowFw(mac, show_fw) {
-    fetch('/device_show_fw', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mac, show_fw})})
         .then(r=>r.json()).then(d => { if(!d.ok) toast('Error'); });
 }
 function removeDevice(btn, mac) {

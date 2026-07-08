@@ -405,7 +405,7 @@ def _daily_config_inner():
         'enabled':           {str(k): dict(v) for k, v in load_enabled().items()},
         'landscape_flipped': bool(dev_cfg.get('flip_l', False)),
         'portrait_flipped':  bool(dev_cfg.get('flip_p', False)),
-        'show_fw_version':   bool(dev_cfg.get('show_fw', False)),
+        'debug':             bool(dev_cfg.get('debug', False)),
     })
 
 

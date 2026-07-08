@@ -136,38 +136,24 @@ def test_fw_version_not_overwritten_if_same(logged_in):
     assert dev['fw_version'] == '2.0.0'
 
 
-def test_show_fw_toggle_endpoint(logged_in):
-    """POST /device_show_fw toggles the show_fw flag on a device."""
-    register_device(logged_in, TEST_MAC)
-    r = logged_in.post('/device_show_fw',
-                       json={'mac': TEST_MAC, 'show_fw': True},
-                       content_type='application/json')
-    assert r.status_code == 200
-    assert r.get_json()['ok'] is True
-    assert r.get_json()['show_fw'] is True
-    cfg = db.load_config(owner_id=1)
-    dev = next(d for d in cfg['devices'] if d['mac'] == TEST_MAC)
-    assert dev['show_fw'] is True
-    # Toggle off
-    logged_in.post('/device_show_fw',
-                   json={'mac': TEST_MAC, 'show_fw': False},
-                   content_type='application/json')
-    cfg = db.load_config(owner_id=1)
-    dev = next(d for d in cfg['devices'] if d['mac'] == TEST_MAC)
-    assert dev['show_fw'] is False
-
-
-def test_daily_config_includes_show_fw_version(logged_in):
-    """show_fw_version field is returned in /api/daily-config response."""
+def test_daily_config_includes_debug(logged_in):
+    """debug field in /api/daily-config reflects the device flag."""
     register_device(logged_in, TEST_MAC)
     r = logged_in.get('/api/daily-config', headers=device_headers())
     body = r.get_json()
-    assert 'show_fw_version' in body
-    assert body['show_fw_version'] is False
+    assert 'debug' in body
+    assert body['debug'] is False
 
-    # Enable show_fw and re-check
-    logged_in.post('/device_show_fw',
-                   json={'mac': TEST_MAC, 'show_fw': True},
+    # Enable debug and re-check
+    logged_in.post('/device_debug',
+                   json={'mac': TEST_MAC, 'debug': True},
                    content_type='application/json')
     r = logged_in.get('/api/daily-config', headers=device_headers())
-    assert r.get_json()['show_fw_version'] is True
+    assert r.get_json()['debug'] is True
+
+    # Disable debug
+    logged_in.post('/device_debug',
+                   json={'mac': TEST_MAC, 'debug': False},
+                   content_type='application/json')
+    r = logged_in.get('/api/daily-config', headers=device_headers())
+    assert r.get_json()['debug'] is False
