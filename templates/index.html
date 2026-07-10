@@ -224,6 +224,29 @@
         .user-mgmt-stats { font-size: 0.78rem; color: var(--muted); display: flex; gap: 1.25rem; margin-top: 0.25rem; flex-wrap: wrap; }
         .badge-admin { background: rgba(245,158,11,0.15); color: var(--warning); border: 1px solid rgba(245,158,11,0.3); }
         .add-user-form { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; margin-top: 1rem; }
+        /* Share Modal & Friends List styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0; top: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6);
+            align-items: center; justify-content: center;
+            backdrop-filter: blur(4px);
+        }
+        .modal.show { display: flex; }
+        .friend-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid var(--border);
+            padding: 0.15rem 0.45rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
     </style>
 </head>
 <body>
@@ -244,7 +267,7 @@
 
     <!-- Node Status Grid -->
     <div style="margin-bottom: 1.5rem;">
-        <div class="card-title" style="font-size:0.9rem; color:var(--muted); margin-bottom:0.75rem;">📶 Node Status</div>
+        <div class="card-title" style="font-size:0.9rem; color:var(--muted); margin-bottom:0.75rem;">📶 PicFrames Status</div>
         <div class="status-grid">
         {% for dev in config.devices %}
             {% set ts = node_status.get(dev.mac.lower(), 0) %}
@@ -287,9 +310,12 @@
                 <div>
                     <div class="user-name">{{ current_user.username }}</div>
                     <div style="font-size:0.8rem; color:var(--muted);">{% if current_user.is_admin %}Administrator{% else %}User{% endif %}</div>
+                    <div style="font-size:0.8rem; color:var(--muted); margin-top:0.3rem;">
+                        Code: <span id="friend-code-display" style="font-family:monospace; background:var(--bg); border: 1px solid var(--border); padding:0.15rem 0.4rem; border-radius:4px; font-weight:600; cursor:pointer;" onclick="toggleFriendCode(this)" data-code="{{ current_user.friend_code }}">••••-••••</span>
+                    </div>
                 </div>
             </div>
-            <div class="form-row">
+            <div class="form-row" style="margin-top: 1rem;">
                 <label>Default playlist for new devices:</label>
                 <select id="default-playlist-sel" onchange="setDefaultPlaylist(this.value)">
                     <option value="">— Show all images —</option>
@@ -298,14 +324,26 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="user-actions">
+            
+            <div style="border-top: 1px solid var(--border); margin-top: 1.25rem; padding-top: 1.25rem;">
+                <label style="font-weight: 600; display: block; margin-bottom: 0.5rem; font-size: 0.85rem; color: var(--text);">👥 Friends</label>
+                <div id="friends-list-container" style="max-height: 120px; overflow-y: auto; margin-bottom: 0.75rem; display: flex; flex-direction: column; gap: 0.35rem;">
+                    <!-- Friends dynamically loaded here via JS -->
+                </div>
+                <div style="display:flex; gap:0.5rem;">
+                    <input type="text" id="add-friend-code-input" placeholder="Friend Code (xxxx-xxxx)" style="flex:1; padding:0.4rem; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--text); font-size:0.85rem; font-family:monospace;">
+                    <button class="btn btn-primary btn-sm" style="padding: 0.2rem 0.75rem; font-size: 0.85rem;" onclick="addFriendFromInput()">Add</button>
+                </div>
+            </div>
+
+            <div class="user-actions" style="margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1rem;">
                 <a href="{{ url_for('ui.logout') }}" class="btn btn-ghost btn-sm">🚪 Sign Out</a>
             </div>
         </div>
 
         <!-- Devices Card -->
         <div class="card">
-            <div class="card-title">📡 Registered Hardware Nodes</div>
+            <div class="card-title">📡 Registered PicFrames</div>
             <div id="device-list">
             {% for dev in config.devices %}
             {% set dev_pid = device_playlist_ids.get(dev.mac.lower()) %}
@@ -361,26 +399,35 @@
         {% for pl in playlists %}
         {% set pl_devs = playlist_device_macs.get(pl.id|string, []) %}
         {% set pl_imgs = playlist_image_sets.get(pl.id|string, []) %}
-        <div class="playlist-card" id="playlist-card-{{ pl.id }}"
-             ondragover="plDragOver(event, {{ pl.id }})"
-             ondragleave="plDragLeave(event, {{ pl.id }})"
-             ondrop="plDrop(event, {{ pl.id }})">
+         <div class="playlist-card" id="playlist-card-{{ pl.id }}"
+              ondragover="plDragOver(event, {{ pl.id }})"
+              ondragleave="plDragLeave(event, {{ pl.id }})"
+              ondrop="plDrop(event, {{ pl.id }})">
             <div class="playlist-card-name">
+                {% if pl.is_owner %}
                 <span onclick="renamePlaylist(this, {{ pl.id }})">{{ pl.name }}</span>
+                {% else %}
+                <span style="cursor:default;">{{ pl.name }} <span style="font-size:0.75rem; color:var(--muted); font-weight:normal;">(from {{ pl.owner_name }})</span></span>
+                {% endif %}
                 <span class="badge badge-muted">{{ pl_imgs|length }}</span>
+                {% if pl.is_owner %}
                 <button class="btn btn-danger btn-sm" style="padding:0.2rem 0.4rem;" onclick="deletePlaylist({{ pl.id }})">✕</button>
+                {% endif %}
             </div>
             <div class="playlist-settings-row">
                 <label style="font-size:0.78rem;">Sleep:</label>
                 <input type="number" class="playlist-sleep-input" value="{{ pl.sleep_interval }}" min="10"
+                       {% if not pl.is_owner %}disabled{% endif %}
                        onchange="updatePlaylistSetting({{ pl.id }}, 'sleep_interval', this.value)">
                 <label class="toggle-wrap" style="font-size:0.78rem;" title="Shuffle">
                     <input type="checkbox" class="toggle" {% if pl.shuffle %}checked{% endif %}
+                           {% if not pl.is_owner %}disabled{% endif %}
                            onchange="updatePlaylistSetting({{ pl.id }}, 'shuffle', this.checked)">
                     <span>Shuffle</span>
                 </label>
                 <label class="toggle-wrap" style="font-size:0.78rem;" title="Sync — all frames show the same image">
                     <input type="checkbox" class="toggle" {% if pl.sync %}checked{% endif %}
+                           {% if not pl.is_owner %}disabled{% endif %}
                            onchange="updatePlaylistSetting({{ pl.id }}, 'sync', this.checked)">
                     <span>Sync</span>
                 </label>
@@ -392,6 +439,15 @@
                 {% endfor %}
                 {% if not pl_devs %}<span style="font-size:0.75rem; color:var(--muted);">No frames assigned</span>{% endif %}
             </div>
+            {% if pl.is_owner %}
+            <div class="playlist-share-row" style="margin-top:0.75rem; display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap; border-top:1px solid var(--border); padding-top:0.5rem;">
+                <span style="font-size:0.75rem; color:var(--muted);">Shared with:</span>
+                <div id="playlist-collabs-{{ pl.id }}" style="display:inline-flex; flex-wrap:wrap; gap:0.25rem;">
+                    <!-- Collaborator pills dynamically loaded here -->
+                </div>
+                <button class="btn btn-ghost btn-sm" style="padding:0.1rem 0.4rem; font-size:0.75rem; border-radius:4px;" onclick="event.stopPropagation(); openShareModal({{ pl.id }}, '{{ pl.name }}', this)">➕ Share</button>
+            </div>
+            {% endif %}
         </div>
         {% endfor %}
         <div class="playlist-add-card" onclick="createPlaylist()">＋ New Playlist</div>
@@ -512,8 +568,15 @@
         {% set is_queued = (state.queued_image and state.queued_image.get('entry_id') == entry.id) %}
         {% set disabled = (not entry.enabled_l and not entry.enabled_p) %}
         <div class="img-card-list {% if disabled %}disabled{% endif %}"
-             data-entry-id="{{ entry.id }}" data-playlist="{{ pl.id }}">
+             data-entry-id="{{ entry.id }}" data-playlist="{{ pl.id }}"
+             draggable="true"
+             ondragstart="entryDragStart(event, {{ entry.id }})"
+             ondragend="entryDragEnd(event)"
+             ondragover="entryDragOver(event)"
+             ondragleave="entryDragLeave(event)"
+             ondrop="entryDrop(event)">
             <div class="img-row" onclick="toggleCard(this)">
+                <span class="drag-handle" title="Drag to reorder">⠿</span>
                 <span class="img-row-chevron">▶</span>
                 <span class="img-row-name"
                       onclick="event.stopPropagation(); startEntryRename(this, {{ entry.id }}, {{ pl.id }})">{{ entry.title.replace('_', ' ') }}</span>
@@ -576,14 +639,26 @@
         <div class="img-grid">
         {% for entry in pl_entries %}
         {% if entry.enabled_l and entry.has_l %}
-        <div class="img-grid-tile" data-entry-id="{{ entry.id }}"
+        <div class="img-grid-tile" data-entry-id="{{ entry.id }}" data-playlist="{{ pl.id }}"
+             draggable="true"
+             ondragstart="entryGridDragStart(event, {{ entry.id }})"
+             ondragend="entryGridDragEnd(event)"
+             ondragover="entryGridDragOver(event)"
+             ondragleave="entryGridDragLeave(event)"
+             ondrop="entryGridDrop(event)"
              title="{{ entry.title.replace('_', ' ') }} — Landscape">
             <img src="{{ url_for('ui.serve_image', filename='pe' ~ entry.id ~ '_l.bmp') }}" loading="lazy" alt="{{ entry.title }}">
             <div class="tile-label">{{ entry.title.replace('_', ' ') }}</div>
         </div>
         {% endif %}
         {% if entry.enabled_p and entry.has_p %}
-        <div class="img-grid-tile" data-entry-id="{{ entry.id }}"
+        <div class="img-grid-tile" data-entry-id="{{ entry.id }}" data-playlist="{{ pl.id }}"
+             draggable="true"
+             ondragstart="entryGridDragStart(event, {{ entry.id }})"
+             ondragend="entryGridDragEnd(event)"
+             ondragover="entryGridDragOver(event)"
+             ondragleave="entryGridDragLeave(event)"
+             ondrop="entryGridDrop(event)"
              title="{{ entry.title.replace('_', ' ') }} — Portrait">
             <img src="{{ url_for('ui.serve_image', filename='pe' ~ entry.id ~ '_p.bmp') }}" loading="lazy" alt="{{ entry.title }}" style="max-height:240px; object-fit:contain;">
             <div class="tile-label">{{ entry.title.replace('_', ' ') }} ↕</div>
@@ -1210,6 +1285,110 @@ function plDrop(event, pid) {
     if(!base) return;
     fetch(`/playlists/${pid}/add_image`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({base, disable_in_pool:true})})
         .then(r=>r.json()).then(d => { if(d.ok){ toast('Added to playlist'); window.location.reload(); } else toast(d.error || 'Error'); });
+}
+
+// Playlist entries drag & drop: list-view reordering
+let dragEntryId = null;
+
+function entryDragStart(event, entryId) {
+    dragEntryId = entryId;
+    event.dataTransfer.setData('text/plain', String(entryId));
+    event.dataTransfer.effectAllowed = 'all';
+    event.currentTarget.classList.add('dragging');
+}
+function entryDragEnd(event) {
+    dragEntryId = null;
+    document.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging'));
+}
+function entryDragOver(event) {
+    if (dragEntryId === null) return;
+    event.preventDefault(); event.stopPropagation();
+    event.dataTransfer.dropEffect = 'move';
+    const card = event.currentTarget;
+    const rect = card.getBoundingClientRect();
+    const mid  = rect.top + rect.height / 2;
+    card.classList.remove('reorder-over-top', 'reorder-over-bottom');
+    card.classList.add(event.clientY < mid ? 'reorder-over-top' : 'reorder-over-bottom');
+    reorderTarget = { el: card, above: event.clientY < mid };
+}
+function entryDragLeave(event) {
+    event.currentTarget.classList.remove('reorder-over-top', 'reorder-over-bottom');
+    reorderTarget = null;
+}
+function entryDrop(event) {
+    const card = event.currentTarget;
+    card.classList.remove('reorder-over-top', 'reorder-over-bottom');
+    const entryIdStr = event.dataTransfer.getData('text/plain') || String(dragEntryId);
+    const entryId = parseInt(entryIdStr);
+    if(isNaN(entryId) || parseInt(card.dataset.entryId) === entryId) return;
+    event.preventDefault(); event.stopPropagation();
+
+    const pid = card.dataset.playlist;
+    const list = card.closest('.list-view');
+    const srcEl = list.querySelector(`.img-card-list[data-entry-id="${entryId}"]`);
+    if(!srcEl) return;
+
+    const rect   = card.getBoundingClientRect();
+    const above  = event.clientY < rect.top + rect.height / 2;
+    if(above) list.insertBefore(srcEl, card);
+    else if(card.nextSibling) list.insertBefore(srcEl, card.nextSibling);
+    else list.appendChild(srcEl);
+
+    const newOrder = [...list.querySelectorAll('.img-card-list')].map(el => parseInt(el.dataset.entryId));
+    fetch(`/playlists/${pid}/reorder_entries`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({entry_ids: newOrder})})
+        .then(r=>r.json()).then(d => { if(!d.ok) toast('Reorder failed'); });
+}
+
+// Playlist entries drag & drop: grid-view reordering
+let dragGridEntryId = null;
+
+function entryGridDragStart(event, entryId) {
+    dragGridEntryId = entryId;
+    event.dataTransfer.setData('text/plain', String(entryId));
+    event.dataTransfer.effectAllowed = 'all';
+    event.currentTarget.classList.add('dragging');
+}
+function entryGridDragEnd(event) {
+    dragGridEntryId = null;
+    document.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging'));
+}
+function entryGridDragOver(event) {
+    if (dragGridEntryId === null) return;
+    event.preventDefault(); event.stopPropagation();
+    event.dataTransfer.dropEffect = 'move';
+    const tile = event.currentTarget;
+    if(tile.dataset.entryId !== String(dragGridEntryId)) tile.classList.add('reorder-over');
+}
+function entryGridDragLeave(event) {
+    event.currentTarget.classList.remove('reorder-over');
+}
+function entryGridDrop(event) {
+    const tile = event.currentTarget;
+    tile.classList.remove('reorder-over');
+    const entryIdStr = event.dataTransfer.getData('text/plain') || String(dragGridEntryId);
+    const entryId = parseInt(entryIdStr);
+    if(isNaN(entryId)) return;
+    event.preventDefault(); event.stopPropagation();
+    const targetEntryId = parseInt(tile.dataset.entryId);
+    if(entryId === targetEntryId) return;
+
+    const pid = tile.dataset.playlist;
+    const grid = tile.closest('.img-grid');
+    if(!grid) return;
+
+    const targetFirst = grid.querySelector(`[data-entry-id="${targetEntryId}"]`);
+    if(!targetFirst) return;
+    [...grid.querySelectorAll(`[data-entry-id="${entryId}"]`)].forEach(t => grid.insertBefore(t, targetFirst));
+
+    const seen = new Set();
+    const newOrder = [...grid.querySelectorAll('[data-entry-id]')].reduce((acc, el) => {
+        const eid = parseInt(el.dataset.entryId);
+        if(!seen.has(eid)) { seen.add(eid); acc.push(eid); }
+        return acc;
+    }, []);
+
+    fetch(`/playlists/${pid}/reorder_entries`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({entry_ids: newOrder})})
+        .then(r=>r.json()).then(d => { if(!d.ok) toast('Reorder failed'); });
 }
 
 // ---- Collapsible drawers ----
@@ -1896,11 +2075,215 @@ function drawBattChart(canvas, history) {
     // Dots
     ctx.fillStyle = colorAccent;
     history.forEach(function(pt) {
-        ctx.beginPath();
         ctx.arc(xOf(pt.ts), yOf(pt.pct), 2, 0, Math.PI * 2);
         ctx.fill();
     });
 }
+
+// ---- HTML Escaping ----
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+}
+
+// ---- Friends & Sharing ----
+function toggleFriendCode(span) {
+    const hidden = span.textContent === '••••-••••';
+    span.textContent = hidden ? span.dataset.code : '••••-••••';
+}
+
+function loadFriendsList() {
+    fetch('/friends')
+        .then(r => r.json())
+        .then(d => {
+            if (d.ok) {
+                const container = document.getElementById('friends-list-container');
+                if (!container) return;
+                if (d.friends.length === 0) {
+                    container.innerHTML = '<p style="color:var(--muted); font-size:0.8rem; padding:0.2rem 0;">No friends added yet.</p>';
+                    return;
+                }
+                container.innerHTML = d.friends.map(f => `
+                    <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg); border: 1px solid var(--border); padding:0.3rem 0.5rem; border-radius:6px; font-size:0.85rem;">
+                        <span style="font-weight:600;">${escapeHtml(f.username)}</span>
+                        <span style="font-family:monospace; color:var(--muted); font-size:0.75rem;">${f.friend_code}</span>
+                    </div>
+                `).join('');
+            }
+        });
+}
+
+function addFriendFromInput() {
+    const input = document.getElementById('add-friend-code-input');
+    const code = input.value.trim();
+    if (!code) return;
+    fetch('/friends/add', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({code})
+    }).then(r => r.json()).then(d => {
+        if (d.ok) {
+            toast(`Added friend: ${d.username}`);
+            input.value = '';
+            loadFriendsList();
+        } else {
+            toast(`Error: ${d.error}`);
+        }
+    });
+}
+
+// Shared playlists collaborators loading
+function loadAllCollaborators() {
+    const cards = document.querySelectorAll('.playlist-card');
+    cards.forEach(card => {
+        const pid = card.id.replace('playlist-card-', '');
+        const div = document.getElementById(`playlist-collabs-${pid}`);
+        if (!div) return;
+        fetch(`/playlists/${pid}/collaborators`)
+            .then(r => r.json())
+            .then(d => {
+                if (d.ok && d.collaborators) {
+                    if (d.collaborators.length === 0) {
+                        div.innerHTML = '<span style="font-size:0.75rem; color:var(--muted);">no one</span>';
+                        return;
+                    }
+                    div.innerHTML = d.collaborators.map(c => `
+                        <span class="friend-pill">
+                            ${escapeHtml(c.username)}
+                            <span style="cursor:pointer; color:var(--danger); margin-left:0.2rem;" onclick="unsharePlaylist(${pid}, ${c.id})">×</span>
+                        </span>
+                    `).join('');
+                }
+            });
+    });
+}
+
+function unsharePlaylist(pid, friendId) {
+    if (!confirm('Stop sharing with this friend?')) return;
+    fetch(`/playlists/${pid}/unshare`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({friend_id: friendId})
+    }).then(r => r.json()).then(d => {
+        if (d.ok) {
+            toast('Unshared');
+            loadAllCollaborators();
+        } else {
+            toast(d.error || 'Failed');
+        }
+    });
+}
+
+let activeSharePlaylistId = null;
+let allFriendsCache = [];
+let collaboratorsCache = [];
+
+function openShareModal(pid, name, btn) {
+    activeSharePlaylistId = pid;
+    document.getElementById('share-modal-title').textContent = `Share "${name}"`;
+    document.getElementById('share-search-input').value = '';
+    
+    const modal = document.getElementById('share-modal');
+    modal.classList.add('show');
+    
+    fetch(`/playlists/${pid}/collaborators`)
+        .then(r => r.json())
+        .then(d => {
+            if (d.ok) {
+                allFriendsCache = d.friends || [];
+                collaboratorsCache = d.collaborators || [];
+                renderShareFriendsList();
+            }
+        });
+}
+
+function renderShareFriendsList(filterText = '') {
+    const container = document.getElementById('share-friends-list');
+    const query = filterText.toLowerCase();
+    
+    const filtered = allFriendsCache.filter(f => f.username.toLowerCase().includes(query));
+    if (filtered.length === 0) {
+        container.innerHTML = '<p style="color:var(--muted); text-align:center; padding:1rem 0;">No friends found.</p>';
+        return;
+    }
+    
+    container.innerHTML = filtered.map(f => {
+        const isShared = collaboratorsCache.some(c => c.id === f.id);
+        const actionBtn = isShared 
+            ? `<button class="btn btn-ghost btn-sm" onclick="toggleShareInModal(${f.id}, false)">Remove</button>`
+            : `<button class="btn btn-primary btn-sm" onclick="toggleShareInModal(${f.id}, true)">Share</button>`;
+            
+        return `
+            <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg); border: 1px solid var(--border); padding:0.4rem 0.6rem; border-radius:8px;">
+                <div>
+                    <div style="font-weight:600; font-size:0.9rem;">${escapeHtml(f.username)}</div>
+                    <div style="font-size:0.75rem; color:var(--muted); font-family:monospace;">${f.friend_code}</div>
+                </div>
+                <div>${actionBtn}</div>
+            </div>
+        `;
+    }).join('');
+}
+
+function filterShareFriends() {
+    const input = document.getElementById('share-search-input');
+    renderShareFriendsList(input.value);
+}
+
+function toggleShareInModal(friendId, shouldShare) {
+    const url = `/playlists/${activeSharePlaylistId}/${shouldShare ? 'share' : 'unshare'}`;
+    fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({friend_id: friendId})
+    }).then(r => r.json()).then(d => {
+        if (d.ok) {
+            toast(shouldShare ? 'Shared' : 'Removed');
+            // Refresh local cache and UI
+            fetch(`/playlists/${activeSharePlaylistId}/collaborators`)
+                .then(r => r.json())
+                .then(d => {
+                    if (d.ok) {
+                        collaboratorsCache = d.collaborators || [];
+                        renderShareFriendsList(document.getElementById('share-search-input').value);
+                        loadAllCollaborators();
+                    }
+                });
+        } else {
+            toast(d.error || 'Failed');
+        }
+    });
+}
+
+function closeShareModal() {
+    document.getElementById('share-modal').classList.remove('show');
+    activeSharePlaylistId = null;
+}
+
+// On document load
+document.addEventListener('DOMContentLoaded', () => {
+    loadFriendsList();
+    loadAllCollaborators();
+});
 </script>
+
+<!-- Share Modal -->
+<div id="share-modal" class="modal">
+    <div class="card" style="width:100%; max-width:400px; padding:20px; background:var(--card); border:1px solid var(--border); border-radius:12px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+            <h3 id="share-modal-title" style="font-size:1.1rem; font-weight:600; color:var(--text);">Share Playlist</h3>
+            <span style="cursor:pointer; font-size:1.2rem; color:var(--muted);" onclick="closeShareModal()">✕</span>
+        </div>
+        <div style="margin-bottom:1rem;">
+            <input type="text" id="share-search-input" placeholder="Search friends..." style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--text); font-size:0.9rem;" oninput="filterShareFriends()">
+        </div>
+        <div id="share-friends-list" style="max-height:200px; overflow-y:auto; display:flex; flex-direction:column; gap:0.4rem; margin-bottom:1rem;">
+            <!-- Friends list with toggle buttons loaded dynamically -->
+        </div>
+        <div style="display:flex; justify-content:flex-end;">
+            <button class="btn btn-primary" onclick="closeShareModal()">Done</button>
+        </div>
+    </div>
+</div>
 </body>
 </html>

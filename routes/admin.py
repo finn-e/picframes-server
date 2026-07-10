@@ -33,6 +33,9 @@ from db import (
     # Resolution helpers
     get_device_resolution, get_playlist_resolution,
     set_playlist_resolution, clear_playlist_resolution,
+    # Friendships & Sharing
+    is_playlist_accessible, add_friend_by_code, get_friends,
+    share_playlist, unshare_playlist, get_playlist_collaborators,
 )
 from image import (
     convert_image, ensure_artifacts_for_playlist,
@@ -50,6 +53,13 @@ logger = logging.getLogger(__name__)
 admin_bp = Blueprint('admin', __name__)
 
 
+def _check_entry_access(entry_id):
+    entry = get_playlist_entry(entry_id)
+    if not entry:
+        return None, False, False
+    return entry, True, is_playlist_accessible(entry['playlist_id'], session.get('user_id', 1))
+
+
 # ---------------------------------------------------------------------------
 # Upload / convert
 # ---------------------------------------------------------------------------
@@ -64,6 +74,16 @@ def _convert_in_background(saved):
 
 @admin_bp.route('/upload', methods=['POST'])
 def upload_file():
+    playlist_id = request.form.get('playlist_id')
+    pid = None
+    if playlist_id is not None:
+        try:
+            pid = int(playlist_id)
+            if not is_playlist_accessible(pid, session.get('user_id', 1)):
+                return jsonify({'ok': False, 'error': 'Access denied'}), 403
+        except (ValueError, TypeError):
+            pid = None
+
     saved = []
     for file in request.files.getlist('files'):
         if not file.filename: continue
@@ -74,18 +94,61 @@ def upload_file():
         base, _ = os.path.splitext(file.filename)
         saved.append((original_path, base))
 
-    if saved:
-        # Assign to the uploading user's pool now (session is only available
-        # here), then convert in the background so the response returns before
-        # any proxy/worker timeout.
-        order = load_image_order()
-        changed = False
-        for _, base in saved:
-            if base not in order:
-                order.append(base); changed = True
-        if changed:
-            save_image_order(order)
-        threading.Thread(target=_convert_in_background, args=(saved,), daemon=True).start()
+    if not saved:
+        if pid is not None:
+            return jsonify({'ok': False, 'error': 'No valid files uploaded'}), 400
+        return redirect(url_for('ui.index'))
+
+    # Always add to the general pool order
+    order = load_image_order()
+    changed = False
+    for _, base in saved:
+        if base not in order:
+            order.append(base); changed = True
+    if changed:
+        save_image_order(order)
+
+    if pid is not None:
+        # Upload + add to playlist path: return JSON
+        entries_added = []
+        errors = []
+        for original_path, base in saved:
+            entries = get_playlist_entries(pid)
+            if len(entries) >= 10:
+                errors.append(f'{base}: Playlist is full (maximum 10 images)')
+                continue
+            image_uuid = get_or_create_image(base)
+            if not image_uuid:
+                errors.append(f'{base}: Could not register image')
+                continue
+            entry_id = add_playlist_entry(pid, image_uuid, title=base)
+            if not entry_id:
+                errors.append(f'{base}: Could not create playlist entry')
+                continue
+            add_playlist_image(pid, base)
+            # Disable in general pool (consistent with drag-add behaviour)
+            enabled = load_enabled()
+            f = flags(enabled, base); f['l'] = False; f['p'] = False
+            enabled[base] = f; save_enabled(enabled)
+            entries_added.append({'base': base, 'entry_id': entry_id})
+            # Background: generate entry artifacts
+            def _bg_playlist(eid=entry_id, p=pid, op=original_path, b=base):
+                try:
+                    convert_image(op, b)
+                    from image import convert_entry, ensure_artifacts_for_playlist
+                    convert_entry(eid)
+                    ensure_artifacts_for_playlist(p)
+                    trigger_redownload()
+                except Exception as e:
+                    logger.error(f'upload playlist bg({eid}): {e}')
+            threading.Thread(target=_bg_playlist, daemon=True).start()
+
+        if errors and not entries_added:
+            return jsonify({'ok': False, 'error': '; '.join(errors)}), 400
+        return jsonify({'ok': True, 'added': entries_added, 'errors': errors})
+
+    # Normal pool-only upload: background convert, redirect
+    threading.Thread(target=_convert_in_background, args=(saved,), daemon=True).start()
     return redirect(url_for('ui.index'))
 
 
@@ -483,6 +546,8 @@ def playlist_create():
 
 @admin_bp.route('/playlists/<int:pid>/rename', methods=['POST'])
 def playlist_rename(pid):
+    if not is_playlist_accessible(pid, session.get('user_id', 1)):
+        return jsonify({'ok': False, 'error': 'Access denied'}), 403
     data = request.get_json() or {}
     name = data.get('name', '').strip()
     if not name: return jsonify({'ok': False, 'error': 'Empty name'}), 400
@@ -492,6 +557,8 @@ def playlist_rename(pid):
 
 @admin_bp.route('/playlists/<int:pid>/settings', methods=['POST'])
 def playlist_settings(pid):
+    if not is_playlist_accessible(pid, session.get('user_id', 1)):
+        return jsonify({'ok': False, 'error': 'Access denied'}), 403
     data = request.get_json() or {}
     kwargs = {}
     if 'shuffle'        in data: kwargs['shuffle']        = 1 if data['shuffle'] else 0
@@ -503,6 +570,9 @@ def playlist_settings(pid):
 
 @admin_bp.route('/playlists/<int:pid>/delete', methods=['POST'])
 def playlist_delete(pid):
+    playlist = load_playlist(pid)
+    if not playlist or playlist['owner_id'] != session.get('user_id', 1):
+        return jsonify({'ok': False, 'error': 'Access denied'}), 403
     delete_playlist(pid)
     # If deleted playlist was the default, clear that setting
     if get_global_setting('default_playlist_id') == str(pid):
@@ -512,6 +582,8 @@ def playlist_delete(pid):
 
 @admin_bp.route('/playlists/<int:pid>/add_image', methods=['POST'])
 def playlist_add_image(pid):
+    if not is_playlist_accessible(pid, session.get('user_id', 1)):
+        return jsonify({'ok': False, 'error': 'Access denied'}), 403
     data = request.get_json() or {}
     base = data.get('base', '').strip()
     if not base: return jsonify({'ok': False, 'error': 'Missing base'}), 400
@@ -553,6 +625,8 @@ def playlist_add_image(pid):
 
 @admin_bp.route('/playlists/<int:pid>/remove_image', methods=['POST'])
 def playlist_remove_image(pid):
+    if not is_playlist_accessible(pid, session.get('user_id', 1)):
+        return jsonify({'ok': False, 'error': 'Access denied'}), 403
     data = request.get_json() or {}
     base = data.get('base', '').strip()
     if not base: return jsonify({'ok': False, 'error': 'Missing base'}), 400
@@ -566,6 +640,8 @@ def playlist_remove_entry(pid, entry_id):
     entry = get_playlist_entry(entry_id)
     if not entry or entry['playlist_id'] != pid:
         return jsonify({'ok': False, 'error': 'Entry not found'}), 404
+    if not is_playlist_accessible(pid, session.get('user_id', 1)):
+        return jsonify({'ok': False, 'error': 'Access denied'}), 403
     delete_entry_artifacts(entry_id)
     remove_playlist_entry(entry_id)
     trigger_redownload()
@@ -574,13 +650,15 @@ def playlist_remove_entry(pid, entry_id):
 
 @admin_bp.route('/playlists/<int:pid>/rename_entry/<int:entry_id>', methods=['POST'])
 def playlist_rename_entry(pid, entry_id):
+    entry = get_playlist_entry(entry_id)
+    if not entry or entry['playlist_id'] != pid:
+        return jsonify({'ok': False, 'error': 'Entry not found'}), 404
+    if not is_playlist_accessible(pid, session.get('user_id', 1)):
+        return jsonify({'ok': False, 'error': 'Access denied'}), 403
     data = request.get_json() or {}
     new_title = data.get('title', '').strip()
     if not new_title:
         return jsonify({'ok': False, 'error': 'Empty title'}), 400
-    entry = get_playlist_entry(entry_id)
-    if not entry or entry['playlist_id'] != pid:
-        return jsonify({'ok': False, 'error': 'Entry not found'}), 404
     safe_title = rename_playlist_entry(entry_id, new_title)
     if safe_title is None:
         return jsonify({'ok': False, 'error': 'Rename failed'}), 500
@@ -598,6 +676,8 @@ def playlist_rename_entry(pid, entry_id):
 
 @admin_bp.route('/playlists/<int:pid>/reorder_entries', methods=['POST'])
 def playlist_reorder_entries(pid):
+    if not is_playlist_accessible(pid, session.get('user_id', 1)):
+        return jsonify({'ok': False, 'error': 'Access denied'}), 403
     data      = request.get_json() or {}
     entry_ids = data.get('entry_ids', [])
     reorder_playlist_entries(pid, entry_ids)
@@ -606,6 +686,8 @@ def playlist_reorder_entries(pid):
 
 @admin_bp.route('/playlists/<int:pid>/reorder', methods=['POST'])
 def playlist_reorder(pid):
+    if not is_playlist_accessible(pid, session.get('user_id', 1)):
+        return jsonify({'ok': False, 'error': 'Access denied'}), 403
     data  = request.get_json() or {}
     bases = data.get('bases', [])
     reorder_playlist_images(pid, bases)
@@ -730,6 +812,11 @@ def image_edit_save(base):
 @admin_bp.route('/entry-toggle-orient/<int:entry_id>', methods=['POST'])
 def entry_toggle_orient(entry_id):
     """Toggle enabled_l or enabled_p for a playlist entry."""
+    entry, exists, allowed = _check_entry_access(entry_id)
+    if not exists:
+        return jsonify({'ok': False, 'error': 'Not found'}), 404
+    if not allowed:
+        return jsonify({'ok': False, 'error': 'Access denied'}), 403
     data   = request.get_json() or {}
     orient = data.get('orient')
     val    = bool(data.get('enabled', True))
@@ -744,9 +831,11 @@ def entry_toggle_orient(entry_id):
 @admin_bp.route('/entry-edit/<int:entry_id>', methods=['GET'])
 def entry_edit_get(entry_id):
     """Return saved edit params for a playlist entry, or defaults if neutral."""
-    entry = get_playlist_entry(entry_id)
-    if not entry:
+    entry, exists, allowed = _check_entry_access(entry_id)
+    if not exists:
         return jsonify({'error': 'Not found'}), 404
+    if not allowed:
+        return jsonify({'error': 'Access denied'}), 403
     result = {
         'hue_shift':  float(entry.get('hue_shift',  0) or 0),
         'saturation': float(entry.get('saturation',  1) or 1),
@@ -773,9 +862,11 @@ def entry_edit_get(entry_id):
 @admin_bp.route('/entry-edit/<int:entry_id>', methods=['POST'])
 def entry_edit_save(entry_id):
     """Persist edit params for an entry and trigger background reconversion."""
-    entry = get_playlist_entry(entry_id)
-    if not entry:
+    entry, exists, allowed = _check_entry_access(entry_id)
+    if not exists:
         return jsonify({'ok': False, 'error': 'Not found'}), 404
+    if not allowed:
+        return jsonify({'ok': False, 'error': 'Access denied'}), 403
     data = request.get_json() or {}
     save_playlist_entry_edits(entry_id, data)
 
@@ -794,9 +885,11 @@ def entry_edit_save(entry_id):
 @admin_bp.route('/entry-reconvert/<int:entry_id>', methods=['POST'])
 def entry_reconvert(entry_id):
     """Delete and regenerate artifacts for a playlist entry."""
-    entry = get_playlist_entry(entry_id)
-    if not entry:
+    entry, exists, allowed = _check_entry_access(entry_id)
+    if not exists:
         return jsonify({'ok': False, 'error': 'Not found'}), 404
+    if not allowed:
+        return jsonify({'ok': False, 'error': 'Access denied'}), 403
 
     def _bg(eid):
         try:
@@ -813,9 +906,11 @@ def entry_reconvert(entry_id):
 @admin_bp.route('/entry-preview/<int:entry_id>', methods=['POST'])
 def entry_preview(entry_id):
     """Return a dithered preview PNG for a playlist entry using its current params."""
-    entry = get_playlist_entry(entry_id)
-    if not entry:
+    entry, exists, allowed = _check_entry_access(entry_id)
+    if not exists:
         return '', 404
+    if not allowed:
+        return '', 403
     image = get_image_by_uuid(entry['image_uuid'])
     if not image:
         return '', 404
@@ -944,3 +1039,75 @@ def image_preview(base):
     except Exception as e:
         logger.error(f"image_preview({base}): {e}")
         return '', 500
+
+
+# ---------------------------------------------------------------------------
+# Friendships & Sharing
+# ---------------------------------------------------------------------------
+
+@admin_bp.route('/friends/add', methods=['POST'])
+def friends_add():
+    uid = session.get('user_id', 1)
+    data = request.get_json() or {}
+    code = data.get('code', '').strip()
+    if not code:
+        return jsonify({'ok': False, 'error': 'Missing friend code'}), 400
+    ok, result = add_friend_by_code(uid, code)
+    if not ok:
+        return jsonify({'ok': False, 'error': result}), 400
+    return jsonify({'ok': True, 'username': result})
+
+
+@admin_bp.route('/friends', methods=['GET'])
+def friends_list():
+    uid = session.get('user_id', 1)
+    friends = get_friends(uid)
+    return jsonify({'ok': True, 'friends': friends})
+
+
+@admin_bp.route('/playlists/<int:pid>/share', methods=['POST'])
+def playlist_share_endpoint(pid):
+    uid = session.get('user_id', 1)
+    playlist = load_playlist(pid)
+    if not playlist or playlist['owner_id'] != uid:
+        return jsonify({'ok': False, 'error': 'Only the playlist owner can share it'}), 403
+    
+    data = request.get_json() or {}
+    friend_id = data.get('friend_id')
+    if friend_id is None:
+        return jsonify({'ok': False, 'error': 'Missing friend_id'}), 400
+        
+    friends = get_friends(uid)
+    if not any(f['id'] == int(friend_id) for f in friends):
+        return jsonify({'ok': False, 'error': 'User is not in your friends list'}), 400
+        
+    ok = share_playlist(pid, int(friend_id))
+    return jsonify({'ok': ok})
+
+
+@admin_bp.route('/playlists/<int:pid>/unshare', methods=['POST'])
+def playlist_unshare_endpoint(pid):
+    uid = session.get('user_id', 1)
+    playlist = load_playlist(pid)
+    if not playlist or playlist['owner_id'] != uid:
+        return jsonify({'ok': False, 'error': 'Only the playlist owner can unshare it'}), 403
+    
+    data = request.get_json() or {}
+    friend_id = data.get('friend_id')
+    if friend_id is None:
+        return jsonify({'ok': False, 'error': 'Missing friend_id'}), 400
+        
+    ok = unshare_playlist(pid, int(friend_id))
+    return jsonify({'ok': ok})
+
+
+@admin_bp.route('/playlists/<int:pid>/collaborators', methods=['GET'])
+def playlist_collaborators_endpoint(pid):
+    uid = session.get('user_id', 1)
+    playlist = load_playlist(pid)
+    if not playlist or playlist['owner_id'] != uid:
+        return jsonify({'ok': False, 'error': 'Access denied'}), 403
+        
+    collabs = get_playlist_collaborators(pid)
+    friends = get_friends(uid)
+    return jsonify({'ok': True, 'collaborators': collabs, 'friends': friends})

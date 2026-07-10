@@ -569,20 +569,38 @@ def _refresh_inner():
                 return get_device_active_entries(mac, orientation)
             return get_device_active_bases(mac, orientation)
 
-        if sync and pid is not None:
-            # All devices in playlist share one index
-            p_indices  = state.setdefault('playlist_indices', {})
+        if pid is not None:
+            # Playlist devices share one index pool (either synced or sequential/non-synced)
+            p_indices = state.setdefault('playlist_indices', {})
             current_idx = p_indices.get(str(pid), 0)
             if skip:
-                pool = _get_pool()
-                n    = len(pool)
-                if shuffle and n > 1:
-                    current_idx = (current_idx + random.randint(1, n - 1)) % n
-                else:
-                    current_idx = (current_idx + 1) % n if n else 0
-                p_indices[str(pid)] = current_idx
-                state['playlist_indices'] = p_indices
+                should_advance = True
+                if sync:
+                    # If sync is enabled, only advance once per interval to ensure all devices show the same image
+                    p_advances = state.setdefault('playlist_last_advance', {})
+                    last_info = p_advances.get(str(pid), {})
+                    if not isinstance(last_info, dict):
+                        last_info = {}
+                    last_adv = last_info.get('ts', 0)
+                    last_mac = last_info.get('mac', '')
+                    cooldown = max(60, sleep_interval / 2)
+                    if mac != last_mac and now_ts - last_adv < cooldown:
+                        should_advance = False
+                    else:
+                        p_advances[str(pid)] = {'ts': now_ts, 'mac': mac}
+                        state['playlist_last_advance'] = p_advances
+
+                if should_advance:
+                    pool = _get_pool()
+                    n    = len(pool)
+                    if shuffle and n > 1:
+                        current_idx = (current_idx + random.randint(1, n - 1)) % n
+                    else:
+                        current_idx = (current_idx + 1) % n if n else 0
+                    p_indices[str(pid)] = current_idx
+                    state['playlist_indices'] = p_indices
         else:
+            # Non-playlist devices (general pool) use per-device indices
             d_indices   = state.setdefault('device_indices', {})
             current_idx = d_indices.get(mac, 0)
             if skip:
@@ -613,10 +631,23 @@ def _refresh_inner():
                 # the next skip lands on image 0.
                 n = len(pool)
                 store_idx = q_idx if 0 <= q_idx < n else 0
-                if sync and pid is not None:
+                if pid is not None:
                     state.setdefault('playlist_indices', {})[str(pid)] = store_idx
                 else:
                     state.setdefault('device_indices', {})[mac]        = store_idx
+
+        # Update device_images with the current image file name
+        pool = _get_pool()
+        if pool and 0 <= current_idx < len(pool):
+            orient_char = 'p' if orientation == 'portrait' else 'l'
+            if pid is not None:
+                entry = pool[current_idx]
+                state.setdefault('device_images', {})[mac] = f"pe{entry['id']}_{orient_char}.bin"
+            else:
+                base = pool[current_idx]
+                state.setdefault('device_images', {})[mac] = f"{base}_{orient_char}.bin"
+        else:
+            state.setdefault('device_images', {})[mac] = None
 
         save_state(state)
 

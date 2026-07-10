@@ -152,3 +152,72 @@ def test_queued_idx_base_pool():
     assert _queued_idx_for({'base': 'b', 'source': 'general'}, 'm', pool) == 1
     assert _queued_idx_for({'base': 'zz', 'source': 'general'}, 'm', pool) == 3
     assert _queued_idx_for({'base': 'b', 'source': 'M'}, 'm', pool) == 1  # mac match, case-insensitive
+
+
+def test_device_images_tracking(logged_in):
+    pid, eids, _ = setup_playlist_device(logged_in, bases=('a', 'b'))
+    
+    # Check that device_images updates on refresh
+    res = _refresh(logged_in)
+    assert res['image_index'] == 0
+    state = db.load_state()
+    assert state['device_images'].get(TEST_MAC) == f"pe{eids[0]}_l.bin"
+
+    # Advance
+    res2 = _refresh(logged_in, skip=True)
+    assert res2['image_index'] == 1
+    state2 = db.load_state()
+    assert state2['device_images'].get(TEST_MAC) == f"pe{eids[1]}_l.bin"
+
+
+def test_playlist_sync_toggled_vs_non_sync(logged_in):
+    # Setup playlist with 3 images
+    pid, eids, _ = setup_playlist_device(logged_in, bases=('a', 'b', 'c'))
+    
+    # Register a second device on the same playlist
+    mac2 = '00:11:22:33:44:55'
+    from tests.conftest import register_device
+    register_device(logged_in, mac2)
+    r_assign = logged_in.post('/device_playlist', json={'mac': mac2, 'playlist_id': pid})
+    print("ASSIGN STATUS:", r_assign.status_code, r_assign.get_json())
+    assert r_assign.status_code == 200
+
+    # Case 1: Sync is disabled on this playlist.
+    # When multiple devices phone home, they should advance sequentially (taking turns).
+    r_settings = logged_in.post(f'/playlists/{pid}/settings', json={
+        'name': 'TestPL', 'sleep_interval': 900, 'shuffle': False, 'sync': False
+    })
+    print("SETTINGS STATUS:", r_settings.status_code, r_settings.get_json())
+    assert r_settings.status_code == 200
+
+    # First device: gets index 0 -> advances to 1
+    res1 = _refresh(logged_in, skip=True)
+    print("REFRESH 1 STATUS:", res1)
+    assert res1['image_index'] == 1
+
+    # Second device: gets index 1 -> advances to 2
+    r = logged_in.post('/api/refresh', json={'skip': True}, headers=device_headers(mac2))
+    print("REFRESH 2 STATUS:", r.status_code, r.get_json())
+    assert r.status_code == 200
+    assert r.get_json()['image_index'] == 2
+
+    # First device again: gets index 2 -> advances to 0 (wrap)
+    res2 = _refresh(logged_in, skip=True)
+    print("REFRESH 3 STATUS:", res2)
+    assert res2['image_index'] == 0
+
+    # Case 2: Sync is enabled on this playlist.
+    # They should display the SAME image (cooldown stops the second one from advancing).
+    logged_in.post(f'/playlists/{pid}/settings', json={
+        'name': 'TestPL', 'sleep_interval': 900, 'shuffle': False, 'sync': True
+    })
+
+    # Device 1 checks in first, advances index (now 0 -> 1)
+    res_sync1 = _refresh(logged_in, skip=True)
+    assert res_sync1['image_index'] == 1
+
+    # Device 2 checks in immediately after, stays on index 1
+    r_sync2 = logged_in.post('/api/refresh', json={'skip': True}, headers=device_headers(mac2))
+    assert r_sync2.status_code == 200
+    assert r_sync2.get_json()['image_index'] == 1
+

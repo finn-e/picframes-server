@@ -64,6 +64,22 @@ def _col(conn, table, col, definition):
         pass
 
 
+def generate_friend_code():
+    import random
+    chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    c1 = "".join(random.choices(chars, k=4))
+    c2 = "".join(random.choices(chars, k=4))
+    return f"{c1}-{c2}"
+
+
+def _generate_unique_friend_code(conn):
+    while True:
+        code = generate_friend_code()
+        row = conn.execute("SELECT 1 FROM users WHERE friend_code=?", (code,)).fetchone()
+        if not row:
+            return code
+
+
 def init_db():
     conn = get_db()
     c = conn.cursor()
@@ -87,7 +103,24 @@ def init_db():
         username      TEXT NOT NULL UNIQUE,
         password_hash TEXT NOT NULL,
         is_admin      INTEGER DEFAULT 0,
+        friend_code   TEXT UNIQUE,
         created_at    TEXT DEFAULT (datetime('now')))""")
+
+    # Friendships table
+    c.execute("""CREATE TABLE IF NOT EXISTS friendships (
+        user_id1 INTEGER NOT NULL,
+        user_id2 INTEGER NOT NULL,
+        PRIMARY KEY (user_id1, user_id2),
+        FOREIGN KEY (user_id1) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id2) REFERENCES users(id) ON DELETE CASCADE)""")
+
+    # Playlist shares table
+    c.execute("""CREATE TABLE IF NOT EXISTS playlist_shares (
+        playlist_id INTEGER NOT NULL,
+        user_id     INTEGER NOT NULL,
+        PRIMARY KEY (playlist_id, user_id),
+        FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id)     REFERENCES users(id) ON DELETE CASCADE)""")
 
     # Playlist tables
     c.execute("""CREATE TABLE IF NOT EXISTS playlists (
@@ -197,6 +230,14 @@ def init_db():
     except Exception:
         pass  # column already exists
 
+    _col(conn, 'users', 'friend_code', 'TEXT DEFAULT NULL')
+
+    # Backfill missing friend codes
+    rows = conn.execute("SELECT id FROM users WHERE friend_code IS NULL").fetchall()
+    for row in rows:
+        uid = row['id']
+        code = _generate_unique_friend_code(conn)
+        conn.execute("UPDATE users SET friend_code=? WHERE id=?", (code, uid))
     conn.commit()
 
     _seed_admin(conn, c)
@@ -307,9 +348,15 @@ def _migrate_playlists(conn, c):
 def _seed_admin(conn, c):
     from werkzeug.security import generate_password_hash
     pwd = os.environ.get('ADMIN_PASSWORD', 'admin')
-    c.execute("""INSERT INTO users (username, password_hash, is_admin) VALUES ('admin', ?, 1)
-                 ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash""",
-              (generate_password_hash(pwd),))
+    # Check if admin already exists
+    row = conn.execute("SELECT friend_code FROM users WHERE username='admin'").fetchone()
+    if row and row['friend_code']:
+        code = row['friend_code']
+    else:
+        code = _generate_unique_friend_code(conn)
+    c.execute("""INSERT INTO users (username, password_hash, is_admin, friend_code) VALUES ('admin', ?, 1, ?)
+                 ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash, friend_code=COALESCE(users.friend_code, excluded.friend_code)""",
+              (generate_password_hash(pwd), code))
     conn.commit()
 
 
@@ -363,8 +410,9 @@ def create_user(username, password, is_admin=False):
     from werkzeug.security import generate_password_hash
     try:
         conn = get_db()
-        c = conn.execute("INSERT INTO users (username, password_hash, is_admin) VALUES (?,?,?)",
-                         (username, generate_password_hash(password), 1 if is_admin else 0))
+        code = _generate_unique_friend_code(conn)
+        c = conn.execute("INSERT INTO users (username, password_hash, is_admin, friend_code) VALUES (?,?,?,?)",
+                          (username, generate_password_hash(password), 1 if is_admin else 0, code))
         uid = c.lastrowid
         conn.commit(); conn.close()
         return uid
@@ -382,6 +430,115 @@ def delete_user(user_id):
         conn.commit(); conn.close()
     except Exception as e:
         logger.error(f"delete_user({user_id}): {e}")
+
+
+# ---------------------------------------------------------------------------
+# Friendships & Sharing
+# ---------------------------------------------------------------------------
+
+def add_friend_by_code(user_id, code):
+    try:
+        conn = get_db()
+        # Find friend
+        friend = conn.execute("SELECT id, username FROM users WHERE friend_code=?", (code.strip(),)).fetchone()
+        if not friend:
+            conn.close()
+            return False, "Friend code not found"
+        
+        friend_id = friend['id']
+        if friend_id == user_id:
+            conn.close()
+            return False, "You cannot add yourself as a friend"
+        
+        # Check if already friends
+        row = conn.execute("SELECT 1 FROM friendships WHERE user_id1=? AND user_id2=?", (user_id, friend_id)).fetchone()
+        if row:
+            conn.close()
+            return True, friend['username'] # Already friends
+        
+        # Insert mutual friendship
+        conn.execute("INSERT OR IGNORE INTO friendships (user_id1, user_id2) VALUES (?, ?)", (user_id, friend_id))
+        conn.execute("INSERT OR IGNORE INTO friendships (user_id1, user_id2) VALUES (?, ?)", (friend_id, user_id))
+        conn.commit()
+        conn.close()
+        return True, friend['username']
+    except Exception as e:
+        logger.error(f"add_friend_by_code: {e}")
+        return False, "Database error"
+
+
+def get_friends(user_id):
+    try:
+        conn = get_db()
+        rows = conn.execute("""
+            SELECT u.id, u.username, u.friend_code 
+            FROM users u
+            JOIN friendships f ON u.id = f.user_id2
+            WHERE f.user_id1 = ?
+            ORDER BY u.username
+        """, (user_id,)).fetchall()
+        result = [dict(r) for r in rows]
+        conn.close()
+        return result
+    except Exception as e:
+        logger.error(f"get_friends: {e}"); return []
+
+
+def share_playlist(playlist_id, friend_user_id):
+    try:
+        conn = get_db()
+        conn.execute("INSERT OR IGNORE INTO playlist_shares (playlist_id, user_id) VALUES (?, ?)", (playlist_id, friend_user_id))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"share_playlist({playlist_id}, {friend_user_id}): {e}")
+        return False
+
+
+def unshare_playlist(playlist_id, friend_user_id):
+    try:
+        conn = get_db()
+        conn.execute("DELETE FROM playlist_shares WHERE playlist_id=? AND user_id=?", (playlist_id, friend_user_id))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"unshare_playlist({playlist_id}, {friend_user_id}): {e}")
+        return False
+
+
+def get_playlist_collaborators(playlist_id):
+    try:
+        conn = get_db()
+        rows = conn.execute("""
+            SELECT u.id, u.username 
+            FROM users u
+            JOIN playlist_shares ps ON u.id = ps.user_id
+            WHERE ps.playlist_id = ?
+            ORDER BY u.username
+        """, (playlist_id,)).fetchall()
+        result = [dict(r) for r in rows]
+        conn.close()
+        return result
+    except Exception as e:
+        logger.error(f"get_playlist_collaborators({playlist_id}): {e}"); return []
+
+
+def is_playlist_accessible(playlist_id, user_id):
+    if playlist_id is None:
+        return False
+    try:
+        conn = get_db()
+        row = conn.execute("""
+            SELECT 1 FROM playlists 
+            WHERE id = ? AND (owner_id = ? OR id IN (SELECT playlist_id FROM playlist_shares WHERE user_id = ?))
+        """, (int(playlist_id), user_id, user_id)).fetchone()
+        conn.close()
+        return row is not None
+    except Exception as e:
+        logger.error(f"is_playlist_accessible({playlist_id}, {user_id}): {e}")
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -415,8 +572,18 @@ def load_playlists(owner_id=None):
     owner_id = _get_owner_id(owner_id)
     try:
         conn = get_db()
-        rows = conn.execute("SELECT id,name,shuffle,sync,sleep_interval FROM playlists WHERE owner_id=? ORDER BY id", (owner_id,)).fetchall()
-        result = [dict(r) for r in rows]
+        rows = conn.execute("""
+            SELECT p.id, p.name, p.shuffle, p.sync, p.sleep_interval, p.owner_id, u.username as owner_name, p.resolution
+            FROM playlists p
+            JOIN users u ON p.owner_id = u.id
+            WHERE p.owner_id = ? OR p.id IN (SELECT playlist_id FROM playlist_shares WHERE user_id = ?)
+            ORDER BY p.id
+        """, (owner_id, owner_id)).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d['is_owner'] = (d['owner_id'] == owner_id)
+            result.append(d)
         conn.close()
         return result
     except Exception as e:
@@ -428,8 +595,12 @@ def load_playlist(playlist_id):
         return None
     try:
         conn = get_db()
-        row = conn.execute("SELECT id,name,shuffle,sync,sleep_interval FROM playlists WHERE id=?",
-                           (int(playlist_id),)).fetchone()
+        row = conn.execute("""
+            SELECT p.id, p.name, p.shuffle, p.sync, p.sleep_interval, p.owner_id, u.username as owner_name, p.resolution
+            FROM playlists p
+            JOIN users u ON p.owner_id = u.id
+            WHERE p.id = ?
+        """, (int(playlist_id),)).fetchone()
         conn.close()
         return dict(row) if row else None
     except Exception as e:
@@ -822,6 +993,7 @@ def load_state():
         "last_seen": {}, "device_ips": {}, "device_images": {},
         "redownload": {}, "queued_image": None,
         "device_indices": {}, "playlist_indices": {},
+        "playlist_last_advance": {},
     }
     try:
         conn = get_db()
@@ -830,7 +1002,8 @@ def load_state():
             if k in ('last_sync_ts', 'last_change_ts'):
                 defaults[k] = int(v)
             elif k in ('last_seen', 'device_ips', 'device_images', 'redownload',
-                        'queued_image', 'device_indices', 'playlist_indices'):
+                        'queued_image', 'device_indices', 'playlist_indices',
+                        'playlist_last_advance'):
                 try:
                     defaults[k] = json.loads(v)
                 except Exception:

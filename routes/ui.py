@@ -235,10 +235,13 @@ def index():
     device_macs = [dev['mac'].lower() for dev in config.get('devices', []) if dev.get('mac')]
     device_battery = get_latest_battery(device_macs)
 
+    user_row = get_user_by_username(session.get('username', 'admin'))
+    friend_code = user_row.get('friend_code', '') if user_row else ''
     current_user = {
         'username': session.get('username', 'admin'),
         'is_admin': session.get('is_admin', True),
         'user_id':  session.get('user_id'),
+        'friend_code': friend_code,
     }
 
     return render_template(
