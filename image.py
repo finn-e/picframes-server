@@ -881,9 +881,15 @@ def ensure_entry_bin_files_13in3(entry_id):
         if not os.path.exists(bmp_path):
             ok = False; continue
         try:
+            # Delete stale bins of the wrong size (e.g. old 800×480 artifacts)
+            for p in (u_path, f_path):
+                if os.path.exists(p) and os.path.getsize(p) != 960000:
+                    os.remove(p)
             if not os.path.exists(u_path):
                 img = Image.open(bmp_path).convert('RGB')
-                assert img.size == (1200, 1600), f"Expected (1200,1600) for 13in3 entry, got {img.size}"
+                if img.size != (1200, 1600):
+                    logger.error(f"ensure_entry_bin_files_13in3: BMP wrong size {img.size} for entry {entry_id}; reconvert needed")
+                    ok = False; continue
                 data = rgb_array_to_spectra6_bitstream_13in3(np.array(img, dtype=np.uint8))
                 with open(u_path, 'wb') as fh: fh.write(data)
             else:
