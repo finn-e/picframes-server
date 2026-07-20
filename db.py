@@ -232,12 +232,14 @@ def init_db():
 
     _col(conn, 'users', 'friend_code', 'TEXT DEFAULT NULL')
 
-    # Backfill missing friend codes
-    rows = conn.execute("SELECT id FROM users WHERE friend_code IS NULL").fetchall()
+    # Backfill missing friend codes, and regen any old non-uppercase-alpha codes
+    import re as _re
+    _new_fmt = _re.compile(r'^[A-Z]{4}-[A-Z]{4}$')
+    rows = conn.execute("SELECT id, friend_code FROM users").fetchall()
     for row in rows:
-        uid = row['id']
-        code = _generate_unique_friend_code(conn)
-        conn.execute("UPDATE users SET friend_code=? WHERE id=?", (code, uid))
+        if not row['friend_code'] or not _new_fmt.match(row['friend_code']):
+            code = _generate_unique_friend_code(conn)
+            conn.execute("UPDATE users SET friend_code=? WHERE id=?", (code, row['id']))
     conn.commit()
 
     _seed_admin(conn, c)
