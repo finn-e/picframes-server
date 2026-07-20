@@ -646,6 +646,17 @@ def entry_artifact_prefix(entry_id):
     return f'pe{entry_id}'
 
 
+def entry_artifacts_ready(entry_id, w, h):
+    """Return True if all 4 bin files exist and are the correct size for (w,h)."""
+    prefix = entry_artifact_prefix(entry_id)
+    expected = (w * h) // 2  # 4bpp: 192000 for 800×480, 960000 for 1600×1200
+    for sfx in ('_l_u.bin', '_l_f.bin', '_p_u.bin', '_p_f.bin'):
+        p = os.path.join(IMAGES_DIR, prefix + sfx)
+        if not os.path.exists(p) or os.path.getsize(p) != expected:
+            return False
+    return True
+
+
 def delete_entry_artifacts(entry_id):
     """Delete BMP and bin artifacts for a playlist entry; leaves originals intact."""
     prefix = entry_artifact_prefix(entry_id)

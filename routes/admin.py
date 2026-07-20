@@ -46,6 +46,7 @@ from image import (
     convert_entry, convert_entry_for_screen, ensure_entry_bin_files,
     _default_landscape_crop_img, _default_portrait_crop_img, _crop_with_outfill,
     screen_size_for_profile, get_screen_types_for_playlist,
+    entry_artifacts_ready,
 )
 
 logger = logging.getLogger(__name__)
@@ -895,6 +896,19 @@ def entry_edit_save(entry_id):
 
     threading.Thread(target=_bg, args=(entry_id,), daemon=True).start()
     return jsonify({'ok': True})
+
+
+@admin_bp.route('/entry-artifact-status/<int:entry_id>', methods=['GET'])
+def entry_artifact_status(entry_id):
+    entry, exists, allowed = _check_entry_access(entry_id)
+    if not exists:
+        return jsonify({'error': 'Not found'}), 404
+    if not allowed:
+        return jsonify({'error': 'Access denied'}), 403
+    sizes = get_screen_types_for_playlist(entry['playlist_id'])
+    w, h = next(iter(sizes)) if sizes else (800, 480)
+    ready = entry_artifacts_ready(entry_id, w, h)
+    return jsonify({'ready': ready})
 
 
 @admin_bp.route('/entry-reconvert/<int:entry_id>', methods=['POST'])

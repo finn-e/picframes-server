@@ -186,6 +186,12 @@
         .img-grid-tile.reorder-over { outline: 3px solid var(--accent); }
         .img-grid-tile img { width: 100%; display: block; }
         .img-grid-tile .tile-label { padding: 0.35rem 0.5rem; font-size: 0.75rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .entry-ready-badge { font-size: 0.7rem; cursor: default; user-select: none; }
+        .entry-ready-badge-overlay {
+            position: absolute; top: 3px; left: 3px;
+            background: rgba(0,0,0,0.45); border-radius: 4px;
+            padding: 1px 3px; line-height: 1; pointer-events: none;
+        }
 
         /* Crop */
         .rename-input { font-weight: 600; font-size: 0.95rem; background: var(--input-bg); border: 1px solid var(--accent); border-radius: 6px; padding: 0.2rem 0.5rem; color: var(--text); font-family: inherit; max-width: 260px; }
@@ -605,6 +611,7 @@
                 <span class="img-row-name"
                       onclick="event.stopPropagation(); startEntryRename(this, {{ entry.id }}, {{ pl.id }})">{{ entry.title.replace('_', ' ') }}</span>
                 <div class="img-row-actions" onclick="event.stopPropagation()">
+                    <span class="entry-ready-badge" data-entry-id="{{ entry.id }}" title="Checking…">⏳</span>
                     <button class="btn-toggle-lp {% if entry.enabled_l %}on-l{% endif %}" data-orient="l"
                             onclick="toggleEntryOrient({{ entry.id }}, 'l', !this.classList.contains('on-l'))"
                             title="Landscape toggle">L</button>
@@ -671,6 +678,7 @@
              ondragleave="entryGridDragLeave(event)"
              ondrop="entryGridDrop(event)"
              title="{{ entry.title.replace('_', ' ') }} — Landscape">
+            <span class="entry-ready-badge entry-ready-badge-overlay" data-entry-id="{{ entry.id }}" title="Checking…">⏳</span>
             <img src="{{ url_for('ui.serve_image', filename='pe' ~ entry.id ~ '_l.bmp') }}" loading="lazy" alt="{{ entry.title }}">
             <div class="tile-label">{{ entry.title.replace('_', ' ') }}</div>
         </div>
@@ -1088,11 +1096,13 @@ function removeEntry(pid, entryId) {
 
 function reconvertEntry(entryId, btn) {
     if (btn) { btn.textContent = '↻ …'; btn.disabled = true; }
+    _setBadge(entryId, 'reconverting');
     fetch('/entry-reconvert/' + entryId, {
         method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
     }).then(r => r.json()).then(d => {
         toast(d.ok ? 'Reconverting in background' : 'Reconvert failed');
         if (btn) { btn.textContent = '↻ Reconvert'; btn.disabled = false; }
+        _pollEntryReady(entryId);
     });
 }
 
@@ -2369,6 +2379,70 @@ document.addEventListener('DOMContentLoaded', () => {
     loadFriendsList();
     loadAllCollaborators();
 });
+
+// ── Entry artifact readiness badges ──────────────────────────────────────────
+
+const _entryBadgeState = {};  // entryId → 'checking'|'ready'|'reconverting'|'warn'
+
+function _setBadge(entryId, state) {
+    _entryBadgeState[entryId] = state;
+    document.querySelectorAll(`.entry-ready-badge[data-entry-id="${entryId}"]`).forEach(el => {
+        if (state === 'ready') {
+            el.textContent = '✓'; el.style.color = '#22c55e'; el.title = 'Bins ready';
+        } else if (state === 'reconverting') {
+            el.textContent = '↻'; el.style.color = '#f97316'; el.title = 'Reconverting…';
+        } else if (state === 'warn') {
+            el.textContent = '⚠'; el.style.color = '#eab308'; el.title = 'Conversion failed';
+        } else {
+            el.textContent = '⏳'; el.style.color = ''; el.title = 'Checking…';
+        }
+    });
+}
+
+function _checkEntryReady(entryId) {
+    if (_entryBadgeState[entryId] === 'ready') return;
+    fetch('/entry-artifact-status/' + entryId)
+        .then(r => r.json())
+        .then(d => {
+            if (d.ready) {
+                _setBadge(entryId, 'ready');
+            } else if (_entryBadgeState[entryId] !== 'reconverting') {
+                // Auto-trigger reconvert
+                _setBadge(entryId, 'reconverting');
+                fetch('/entry-reconvert/' + entryId, {
+                    method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
+                }).then(() => _pollEntryReady(entryId));
+            }
+        })
+        .catch(() => _setBadge(entryId, 'warn'));
+}
+
+function _pollEntryReady(entryId, attempts) {
+    attempts = attempts || 0;
+    if (attempts > 40) { _setBadge(entryId, 'warn'); return; }  // 2-min timeout
+    setTimeout(() => {
+        fetch('/entry-artifact-status/' + entryId)
+            .then(r => r.json())
+            .then(d => {
+                if (d.ready) _setBadge(entryId, 'ready');
+                else _pollEntryReady(entryId, attempts + 1);
+            })
+            .catch(() => _setBadge(entryId, 'warn'));
+    }, 3000);
+}
+
+function initEntryBadges() {
+    document.querySelectorAll('.entry-ready-badge[data-entry-id]').forEach(el => {
+        const eid = el.dataset.entryId;
+        if (!_entryBadgeState[eid]) {
+            _entryBadgeState[eid] = 'checking';
+            _checkEntryReady(eid);
+        }
+    });
+}
+
+// Run after page load — stagger slightly to avoid flooding the server
+document.addEventListener('DOMContentLoaded', () => setTimeout(initEntryBadges, 500));
 </script>
 
 <!-- Share Modal -->
