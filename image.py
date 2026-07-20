@@ -286,17 +286,23 @@ def delete_all_artifacts(base):
 def get_screen_types_for_playlist(playlist_id):
     """
     Return set of (w, h) tuples for the screen sizes needed by a playlist's devices.
-    If no devices have a known hw_profile, returns {_DEFAULT_SCREEN} as a safe fallback.
+    Queries devices directly (no owner scoping) so background threads get the right answer.
+    Falls back to {_DEFAULT_SCREEN} if no devices with a known hw_profile are assigned.
     """
     try:
-        from db import get_playlist_devices, load_config
-        dev_macs = get_playlist_devices(playlist_id)
-        cfg = load_config()
+        from db import get_db
+        conn = get_db()
+        rows = conn.execute(
+            """SELECT d.hw_profile FROM playlist_devices pd
+               JOIN devices d ON d.mac = pd.mac
+               WHERE pd.playlist_id = ?""",
+            (int(playlist_id),)
+        ).fetchall()
+        conn.close()
         sizes = set()
-        for mac in dev_macs:
-            dev = next((d for d in cfg.get('devices', []) if d['mac'].lower() == mac.lower()), None)
-            if dev and dev.get('hw_profile'):
-                sizes.add(screen_size_for_profile(dev['hw_profile']))
+        for row in rows:
+            if row['hw_profile']:
+                sizes.add(screen_size_for_profile(row['hw_profile']))
         return sizes if sizes else {_DEFAULT_SCREEN}
     except Exception as e:
         logger.error(f"get_screen_types_for_playlist({playlist_id}): {e}")
