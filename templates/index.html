@@ -347,6 +347,16 @@
             <div id="device-list">
             {% for dev in config.devices %}
             {% set dev_pid = device_playlist_ids.get(dev.mac.lower()) %}
+            {% set _hw = dev.hw_profile or '' %}
+            {% if '13in3' in _hw %}
+              {% set _moniker = 'XiaoEE02' %}{% set _ratio = '4×3' %}
+            {% elif '7in3' in _hw %}
+              {% set _moniker = 'XiaoEE04' %}{% set _ratio = '5×3' %}
+            {% elif 'PhotoPainter' in _hw %}
+              {% set _moniker = 'PhotoPainter' %}{% set _ratio = '5×3' %}
+            {% else %}
+              {% set _moniker = '' %}{% set _ratio = '' %}
+            {% endif %}
             <div class="device-row" data-idx="{{ loop.index0 }}">
                 <span style="color:var(--muted); font-size:0.8rem;">#{{ loop.index0 }}</span>
                 <div style="flex:1; min-width:0;">
@@ -362,11 +372,6 @@
                             <option value="{{ pl.id }}" {% if dev_pid == pl.id %}selected{% endif %}>{{ pl.name }}</option>
                             {% endfor %}
                         </select>
-                    </div>
-                    <div style="display:flex; align-items:center; gap:0.5rem; margin-top:0.2rem; flex-wrap:wrap;">
-                        <span class="device-mac">{{ dev.mac }}</span>
-                        {% if dev.hw_profile %}<span style="font-size:0.78rem; color:var(--muted);">{{ dev.hw_profile }}</span>{% endif %}
-                        <span style="font-size:0.78rem; color:var(--muted);">FW: {{ dev.fw_version or 'unknown' }}</span>
                         <label style="font-size:0.78rem;" class="toggle-wrap">
                             <input type="checkbox" class="toggle" {% if dev.flip_l %}checked{% endif %} onchange="setDeviceFlip('{{ dev.mac }}', 'l', this.checked)" title="Flip landscape">
                             <span>Flip L</span>
@@ -380,9 +385,17 @@
                             <span>Debug</span>
                         </label>
                     </div>
+                    <div style="display:flex; align-items:center; gap:0.5rem; margin-top:0.2rem; flex-wrap:wrap;">
+                        <span class="device-mac">{{ dev.mac }}</span>
+                        {% if _moniker %}<span style="font-size:0.78rem; color:var(--muted);">{{ _moniker }}</span>{% endif %}
+                        {% if _ratio %}<span style="font-size:0.78rem; color:var(--muted);">{{ _ratio }}</span>{% endif %}
+                        <span style="font-size:0.78rem; color:var(--muted);">FW: {{ dev.fw_version or 'unknown' }}</span>
+                        <span style="margin-left:auto; display:flex; gap:0.3rem; align-items:center;">
+                            <button type="button" class="btn btn-sm" style="font-size:0.78rem;" onclick="repairDevice('{{ dev.mac }}')">Re-pair</button>
+                            <button type="button" class="btn btn-danger btn-sm" onclick="removeDevice(this, '{{ dev.mac }}')">✕</button>
+                        </span>
+                    </div>
                 </div>
-                <button type="button" class="btn btn-sm" style="font-size:0.78rem;" onclick="repairDevice('{{ dev.mac }}')">Re-pair</button>
-                <button type="button" class="btn btn-danger btn-sm" onclick="removeDevice(this, '{{ dev.mac }}')">✕</button>
             </div>
             {% endfor %}
             </div>
@@ -400,7 +413,17 @@
         {% for pl in playlists %}
         {% set pl_devs = playlist_device_macs.get(pl.id|string, []) %}
         {% set pl_imgs = playlist_image_sets.get(pl.id|string, []) %}
+        {% set _pl_ratios = [] %}
+        {% for mac in pl_devs %}
+          {% set _pdev = config.devices | selectattr('mac', 'equalto', mac) | first | default(None) %}
+          {% if _pdev %}
+            {% set _phw = _pdev.hw_profile or '' %}
+            {% if '13in3' in _phw %}{% set _ = _pl_ratios.append('4x3') %}
+            {% else %}{% set _ = _pl_ratios.append('5x3') %}{% endif %}
+          {% endif %}
+        {% endfor %}
          <div class="playlist-card" id="playlist-card-{{ pl.id }}"
+              data-screen-ratios="{{ _pl_ratios | unique | join(' ') or '5x3' }}"
               ondragover="plDragOver(event, {{ pl.id }})"
               ondragleave="plDragLeave(event, {{ pl.id }})"
               ondrop="plDrop(event, {{ pl.id }})">
@@ -738,10 +761,14 @@
         <canvas id="editor-live-canvas"></canvas>
         <!-- Dithered preview (shown in dither mode) -->
         <img id="editor-preview" src="" alt="" style="display:none; position:absolute; inset:0; width:100%; height:100%; object-fit:contain; pointer-events:none;">
-        <!-- Landscape crop rect (green) -->
+        <!-- Landscape crop rect (green, 5×3) -->
         <div id="ecrop-l" class="ecrop-rect" style="display:none; border:2px dashed #22c55e;"></div>
-        <!-- Portrait crop rect (orange) -->
+        <!-- Portrait crop rect (orange, 3×5) -->
         <div id="ecrop-p" class="ecrop-rect" style="display:none; border:2px dashed #f97316;"></div>
+        <!-- Landscape crop rect (purple, 4×3) -->
+        <div id="ecrop-l43" class="ecrop-rect" style="display:none; border:2px dashed #a855f7;"></div>
+        <!-- Portrait crop rect (yellow, 3×4) -->
+        <div id="ecrop-p34" class="ecrop-rect" style="display:none; border:2px dashed #eab308;"></div>
       </div>
     </div>
     <!-- Right: sidebar controls -->
@@ -753,8 +780,12 @@
       <!-- Crop buttons -->
       <div class="ed-lbl">Crop</div>
       <div class="ed-crop-btns">
-        <button id="ed-crop-l-btn" class="ed-crop-btn" style="border-color:#22c55e;color:#22c55e;" onclick="setActiveCrop('l')">Landscape</button>
-        <button id="ed-crop-p-btn" class="ed-crop-btn" style="border-color:#f97316;color:#f97316;" onclick="setActiveCrop('p')">Portrait</button>
+        <button id="ed-crop-l53-btn" class="ed-crop-btn" style="border-color:#22c55e;color:#22c55e;" onclick="setActiveCrop('l')">Landscape 5×3</button>
+        <button id="ed-crop-p35-btn" class="ed-crop-btn" style="border-color:#f97316;color:#f97316;" onclick="setActiveCrop('p')">Portrait 3×5</button>
+      </div>
+      <div class="ed-crop-btns">
+        <button id="ed-crop-l43-btn" class="ed-crop-btn" style="border-color:#a855f7;color:#a855f7;" onclick="setActiveCrop('l43')">Landscape 4×3</button>
+        <button id="ed-crop-p34-btn" class="ed-crop-btn" style="border-color:#eab308;color:#eab308;" onclick="setActiveCrop('p34')">Portrait 3×4</button>
       </div>
       <div class="ed-zoom-btns">
         <button class="ed-zoom-btn" onclick="zoomEditor(-1)" title="Zoom out (view only)">🔍−</button>
@@ -1437,17 +1468,19 @@ function deleteUser(uid, username) {
 }
 
 // ===== Image Editor Modal =====
-const ED_AR = { l: 5/3, p: 3/5 }; // landscape / portrait aspect ratios
+const ED_AR = { l: 5/3, p: 3/5, l43: 4/3, p34: 3/4 }; // landscape / portrait aspect ratios
 
 let edSt = {
     base: null,      // kept for legacy /image-edit/<base> path; null for entry editors
     entryId: null,   // playlist entry id (preferred path)
     origW: 0, origH: 0,
-    cropL: null, cropP: null,          // {x,y,w,h} in rotated-image px
+    cropL: null, cropP: null,          // {x,y,w,h} in rotated-image px (5×3 / 3×5)
+    cropL43: null, cropP34: null,      // {x,y,w,h} for 4×3 landscape / 3×4 portrait
     hueShift: 0, saturation: 1, valueAdj: 1,
     rGain: 1, gGain: 1, bGain: 1,
     bgColor: '#ffffff',
-    activeCrop: null,                  // 'l' or 'p'
+    activeCrop: null,                  // 'l', 'p', 'l43', or 'p34'
+    screenRatios: ['5x3'],             // which screen types the playlist uses
     rotate: 0,                         // 0/90/180/270 — applied before crop
     ditherMode: false,
 };
@@ -1478,8 +1511,10 @@ function rotateEditor(delta) {
     if (nw && nh) {
         const rotated = edSt.rotate % 180 !== 0;
         const rw = rotated ? nh : nw, rh = rotated ? nw : nh;
-        edSt.cropL = _defaultCrop(rw, rh, 'l');
-        edSt.cropP = _defaultCrop(rw, rh, 'p');
+        edSt.cropL   = _defaultCrop(rw, rh, 'l');
+        edSt.cropP   = _defaultCrop(rw, rh, 'p');
+        edSt.cropL43 = _defaultCrop(rw, rh, 'l43');
+        edSt.cropP34 = _defaultCrop(rw, rh, 'p34');
         renderCropRects();
     }
     _revertDither();
@@ -1645,10 +1680,12 @@ function _defaultCrop(origW, origH, orient) {
     const ar = ED_AR[orient];
     const r = origW / origH;
     let x, y, w, h;
-    if (orient === 'l') {
+    if (orient === 'l' || orient === 'l43') {
+        // Landscape: fit largest rectangle with target AR inside the image
         if (r <= ar) { w=origW; h=w/ar; x=0; y=(origH-h)/2; }
         else          { h=origH; w=h*ar; y=0; x=(origW-w)/2; }
     } else {
+        // Portrait (orient === 'p' || orient === 'p34')
         if (r >= ar) { h=origH; w=h*ar; y=0; x=(origW-w)/2; }
         else          { w=origW; h=w/ar; x=0; y=(origH-h)/2; }
     }
@@ -1680,16 +1717,23 @@ function _openEditorCommon(origSrc, fetchUrl) {
             edSt.bGain      = typeof data.b_gain      === 'number' ? data.b_gain      : 1;
             edSt.bgColor    = data.bg_color || '#ffffff';
             edSt.rotate     = typeof data.rotate === 'number' ? data.rotate : 0;
-            edSt.cropL      = data.crop_l || null;
-            edSt.cropP      = data.crop_p || null;
+            edSt.cropL      = data.crop_l   || null;
+            edSt.cropP      = data.crop_p   || null;
+            edSt.cropL43    = data.crop_l43 || null;
+            edSt.cropP34    = data.crop_p34 || null;
+            edSt.screenRatios = data.screen_ratios || ['5x3'];
             _syncSliders();
+            _updateCropButtonVisibility();
             origEl.style.transform = edSt.rotate ? `rotate(${edSt.rotate}deg)` : '';
             function afterLoad() {
                 const nw = origEl.naturalWidth, nh = origEl.naturalHeight;
                 const rotated = edSt.rotate % 180 !== 0;
                 const rw = rotated ? nh : nw, rh = rotated ? nw : nh;
-                if (!edSt.cropL) edSt.cropL = _defaultCrop(rw, rh, 'l');
-                if (!edSt.cropP) edSt.cropP = _defaultCrop(rw, rh, 'p');
+                if (!edSt.cropL)   edSt.cropL   = _defaultCrop(rw, rh, 'l');
+                if (!edSt.cropP)   edSt.cropP   = _defaultCrop(rw, rh, 'p');
+                if (!edSt.cropL43) edSt.cropL43 = _defaultCrop(rw, rh, 'l43');
+                if (!edSt.cropP34) edSt.cropP34 = _defaultCrop(rw, rh, 'p34');
+                _updateCropButtonVisibility();
                 renderCropRects();
                 _initEditorLiveCanvas();
             }
@@ -1720,7 +1764,7 @@ function openEditor(base) {
 
 function closeEditor() {
     document.getElementById('editor-modal').classList.remove('open');
-    ['ecrop-l','ecrop-p'].forEach(id => {
+    ['ecrop-l','ecrop-p','ecrop-l43','ecrop-p34'].forEach(id => {
         const el = document.getElementById(id);
         el.style.display = 'none'; el.innerHTML = '';
     });
@@ -1768,9 +1812,31 @@ function onEdSlider() {
 
 function setActiveCrop(orient) {
     edSt.activeCrop = (edSt.activeCrop === orient) ? null : orient;
-    document.getElementById('ed-crop-l-btn').classList.toggle('active', edSt.activeCrop === 'l');
-    document.getElementById('ed-crop-p-btn').classList.toggle('active', edSt.activeCrop === 'p');
+    const btnMap = {l: 'ed-crop-l53-btn', p: 'ed-crop-p35-btn', l43: 'ed-crop-l43-btn', p34: 'ed-crop-p34-btn'};
+    Object.entries(btnMap).forEach(([o, id]) => {
+        const btn = document.getElementById(id);
+        if (btn) btn.classList.toggle('active', edSt.activeCrop === o);
+    });
     renderCropRects();
+}
+
+function _updateCropButtonVisibility() {
+    const has53 = edSt.screenRatios.includes('5x3');
+    const has43 = edSt.screenRatios.includes('4x3');
+    document.getElementById('ed-crop-l53-btn').style.display = has53 ? '' : 'none';
+    document.getElementById('ed-crop-p35-btn').style.display = has53 ? '' : 'none';
+    document.getElementById('ed-crop-l43-btn').style.display = has43 ? '' : 'none';
+    document.getElementById('ed-crop-p34-btn').style.display = has43 ? '' : 'none';
+    // If the active crop type is now hidden, deactivate it
+    if (edSt.activeCrop && (
+        (edSt.activeCrop === 'l'   && !has53) ||
+        (edSt.activeCrop === 'p'   && !has53) ||
+        (edSt.activeCrop === 'l43' && !has43) ||
+        (edSt.activeCrop === 'p34' && !has43)
+    )) {
+        edSt.activeCrop = null;
+        renderCropRects();
+    }
 }
 
 function renderCropRects() {
@@ -1784,8 +1850,20 @@ function renderCropRects() {
     // offsetWidth/offsetHeight are pre-transform. Treat them as the rotated dims.
     const scX = imgEl.offsetWidth  / natW;
     const scY = imgEl.offsetHeight / natH;
-    _renderRect('ecrop-l', edSt.cropL, scX, scY, '#22c55e', edSt.activeCrop === 'l');
-    _renderRect('ecrop-p', edSt.cropP, scX, scY, '#f97316', edSt.activeCrop === 'p');
+    if (edSt.screenRatios.includes('5x3')) {
+        _renderRect('ecrop-l', edSt.cropL, scX, scY, '#22c55e', edSt.activeCrop === 'l');
+        _renderRect('ecrop-p', edSt.cropP, scX, scY, '#f97316', edSt.activeCrop === 'p');
+    } else {
+        document.getElementById('ecrop-l').style.display = 'none';
+        document.getElementById('ecrop-p').style.display = 'none';
+    }
+    if (edSt.screenRatios.includes('4x3')) {
+        _renderRect('ecrop-l43', edSt.cropL43, scX, scY, '#a855f7', edSt.activeCrop === 'l43');
+        _renderRect('ecrop-p34', edSt.cropP34, scX, scY, '#eab308', edSt.activeCrop === 'p34');
+    } else {
+        document.getElementById('ecrop-l43').style.display = 'none';
+        document.getElementById('ecrop-p34').style.display = 'none';
+    }
 }
 
 function _renderRect(id, rect, scX, scY, color, active) {
@@ -1821,17 +1899,30 @@ function _renderRect(id, rect, scX, scY, color, active) {
         hEl.style.cursor     = h.cursor;
         if (h.type === 'c') { hEl.style.width = '15px'; hEl.style.height = '15px'; hEl.style.borderRadius = '50%'; }
         el.appendChild(hEl);
-        _attachHandleDrag(hEl, h.type, id === 'ecrop-l' ? 'l' : 'p', scX, scY);
+        const orientMap = {'ecrop-l': 'l', 'ecrop-p': 'p', 'ecrop-l43': 'l43', 'ecrop-p34': 'p34'};
+        _attachHandleDrag(hEl, h.type, orientMap[id], scX, scY);
     });
     // Interior drag to move (when not clicking a handle)
     el.style.cursor = 'move';
-    _attachRectMove(el, id === 'ecrop-l' ? 'l' : 'p', scX, scY);
+    const _orientMap = {'ecrop-l': 'l', 'ecrop-p': 'p', 'ecrop-l43': 'l43', 'ecrop-p34': 'p34'};
+    _attachRectMove(el, _orientMap[id], scX, scY);
+}
+
+function _getCrop(orient) {
+    return orient === 'l' ? edSt.cropL : orient === 'p' ? edSt.cropP :
+           orient === 'l43' ? edSt.cropL43 : edSt.cropP34;
+}
+function _setCrop(orient, val) {
+    if      (orient === 'l')   edSt.cropL   = val;
+    else if (orient === 'p')   edSt.cropP   = val;
+    else if (orient === 'l43') edSt.cropL43 = val;
+    else                       edSt.cropP34 = val;
 }
 
 function _attachHandleDrag(hEl, type, orient, scX, scY) {
     hEl.addEventListener('mousedown', e => {
         e.preventDefault(); e.stopPropagation();
-        const rect = orient === 'l' ? {...edSt.cropL} : {...edSt.cropP};
+        const rect = {..._getCrop(orient)};
         const startX = e.clientX, startY = e.clientY;
         const ar = ED_AR[orient];
         const MIN = 40;
@@ -1869,7 +1960,7 @@ function _attachHandleDrag(hEl, type, orient, scX, scY) {
                 w = Math.max(MIN, w + dx); h = w / ar;
                 y = (y + rect.h/2) - h/2;
             }
-            if (orient === 'l') edSt.cropL = {x, y, w, h}; else edSt.cropP = {x, y, w, h};
+            _setCrop(orient, {x, y, w, h});
             renderCropRects();
             _revertDither();
         }
@@ -1886,13 +1977,12 @@ function _attachRectMove(el, orient, scX, scY) {
     el.addEventListener('mousedown', e => {
         if (e.target !== el) return;
         e.preventDefault();
-        const rect = orient === 'l' ? {...edSt.cropL} : {...edSt.cropP};
+        const rect = {..._getCrop(orient)};
         const startX = e.clientX, startY = e.clientY;
         function onMove(ev) {
             const dx = (ev.clientX - startX) / scX;
             const dy = (ev.clientY - startY) / scY;
-            if (orient === 'l') edSt.cropL = {x: rect.x+dx, y: rect.y+dy, w: rect.w, h: rect.h};
-            else                edSt.cropP = {x: rect.x+dx, y: rect.y+dy, w: rect.w, h: rect.h};
+            _setCrop(orient, {x: rect.x+dx, y: rect.y+dy, w: rect.w, h: rect.h});
             renderCropRects();
             _revertDither();
         }
@@ -1910,8 +2000,10 @@ window.addEventListener('resize', () => { if (edSt.base) { renderCropRects(); _i
 
 function _buildParams() {
     return {
-        crop_l: edSt.cropL,
-        crop_p: edSt.cropP,
+        crop_l:   edSt.cropL,
+        crop_p:   edSt.cropP,
+        crop_l43: edSt.cropL43,
+        crop_p34: edSt.cropP34,
         hue_shift: edSt.hueShift,
         saturation: edSt.saturation,
         value_adj: edSt.valueAdj,
@@ -1994,6 +2086,10 @@ function drawDrawerCropRects(card) {
         if (inp.dataset.orient === 'p') pOn = inp.checked;
     });
 
+    const ratios = (card.dataset.screenRatios || '5x3').split(' ');
+    const has53 = ratios.includes('5x3');
+    const has43 = ratios.includes('4x3');
+
     function drawRect(cropData, orient, color, on) {
         if (!on) return;
         const rect = cropData || _defaultCrop(natW, natH, orient);
@@ -2004,8 +2100,14 @@ function drawDrawerCropRects(card) {
         ctx.setLineDash([]);
     }
 
-    drawRect(card._editData.crop_l, 'l', '#22c55e', lOn);
-    drawRect(card._editData.crop_p, 'p', '#f97316', pOn);
+    if (has53) {
+        drawRect(card._editData.crop_l,   'l',   '#22c55e', lOn);
+        drawRect(card._editData.crop_p,   'p',   '#f97316', pOn);
+    }
+    if (has43) {
+        drawRect(card._editData.crop_l43, 'l43', '#a855f7', lOn);
+        drawRect(card._editData.crop_p34, 'p34', '#eab308', pOn);
+    }
 }
 
 

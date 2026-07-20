@@ -230,6 +230,11 @@ def init_db():
     except Exception:
         pass  # column already exists
 
+    # Migration: add 4×3 crop columns to playlist_entries
+    for col in ('crop_l43_x', 'crop_l43_y', 'crop_l43_w', 'crop_l43_h',
+                'crop_p34_x', 'crop_p34_y', 'crop_p34_w', 'crop_p34_h'):
+        _col(conn, 'playlist_entries', col, 'REAL DEFAULT NULL')
+
     _col(conn, 'users', 'friend_code', 'TEXT DEFAULT NULL')
 
     # Backfill missing friend codes, and regen any old non-uppercase-alpha codes
@@ -1448,6 +1453,8 @@ def update_playlist_entry(entry_id, **kwargs):
         'position', 'title', 'enabled_l', 'enabled_p', 'rotate',
         'crop_l_x', 'crop_l_y', 'crop_l_w', 'crop_l_h',
         'crop_p_x', 'crop_p_y', 'crop_p_w', 'crop_p_h',
+        'crop_l43_x', 'crop_l43_y', 'crop_l43_w', 'crop_l43_h',
+        'crop_p34_x', 'crop_p34_y', 'crop_p34_w', 'crop_p34_h',
         'hue_shift', 'saturation', 'value_adj', 'r_gain', 'g_gain', 'b_gain', 'bg_color',
     }
     fields = {k: v for k, v in kwargs.items() if k in allowed}
@@ -1506,13 +1513,19 @@ def reorder_playlist_entries(playlist_id, entry_ids):
 
 def save_playlist_entry_edits(entry_id, params):
     """Persist non-destructive edit params into a playlist_entries row."""
-    crop_l = params.get('crop_l') or {}
-    crop_p = params.get('crop_p') or {}
+    crop_l   = params.get('crop_l')   or {}
+    crop_p   = params.get('crop_p')   or {}
+    crop_l43 = params.get('crop_l43') or {}
+    crop_p34 = params.get('crop_p34') or {}
     update_playlist_entry(entry_id,
         crop_l_x=crop_l.get('x'), crop_l_y=crop_l.get('y'),
         crop_l_w=crop_l.get('w'), crop_l_h=crop_l.get('h'),
         crop_p_x=crop_p.get('x'), crop_p_y=crop_p.get('y'),
         crop_p_w=crop_p.get('w'), crop_p_h=crop_p.get('h'),
+        crop_l43_x=crop_l43.get('x'), crop_l43_y=crop_l43.get('y'),
+        crop_l43_w=crop_l43.get('w'), crop_l43_h=crop_l43.get('h'),
+        crop_p34_x=crop_p34.get('x'), crop_p34_y=crop_p34.get('y'),
+        crop_p34_w=crop_p34.get('w'), crop_p34_h=crop_p34.get('h'),
         hue_shift=float(params.get('hue_shift', 0) or 0),
         saturation=float(params.get('saturation', 1) or 1),
         value_adj=float(params.get('value_adj', 1) or 1),

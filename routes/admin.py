@@ -45,7 +45,7 @@ from image import (
     get_screen_types_for_image, _DEFAULT_SCREEN, convert_image_for_screen,
     convert_entry, convert_entry_for_screen, ensure_entry_bin_files,
     _default_landscape_crop_img, _default_portrait_crop_img, _crop_with_outfill,
-    screen_size_for_profile,
+    screen_size_for_profile, get_screen_types_for_playlist,
 )
 
 logger = logging.getLogger(__name__)
@@ -855,7 +855,22 @@ def entry_edit_get(entry_id):
              'w': entry['crop_p_w'], 'h': entry['crop_p_h']}
             if entry.get('crop_p_w') is not None else None
         ),
+        'crop_l43': (
+            {'x': entry['crop_l43_x'], 'y': entry['crop_l43_y'],
+             'w': entry['crop_l43_w'], 'h': entry['crop_l43_h']}
+            if entry.get('crop_l43_w') is not None else None
+        ),
+        'crop_p34': (
+            {'x': entry['crop_p34_x'], 'y': entry['crop_p34_y'],
+             'w': entry['crop_p34_w'], 'h': entry['crop_p34_h']}
+            if entry.get('crop_p34_w') is not None else None
+        ),
     }
+    entry_screen_types = get_screen_types_for_playlist(entry['playlist_id'])
+    result['screen_ratios'] = list({
+        '5x3' if (w, h) == (800, 480) else '4x3'
+        for w, h in entry_screen_types
+    }) or ['5x3']
     return jsonify(result)
 
 
