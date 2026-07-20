@@ -775,6 +775,154 @@ def convert_entry(entry_id):
         return False
 
 
+def _default_landscape_crop_13in3(img, rw, rh):
+    """4:3 landscape center crop for 13in3 entries."""
+    t = 4.0 / 3.0
+    if rw / rh <= t:
+        wc, hc = rw, int(rw / t); xc, yc = 0, (rh - hc) // 2
+    else:
+        hc, wc = rh, int(rh * t); yc, xc = 0, (rw - wc) // 2
+    return img.crop((xc, yc, xc + wc, yc + hc))
+
+
+def _default_portrait_crop_13in3(img, rw, rh):
+    """3:4 portrait center crop for 13in3 entries."""
+    t = 3.0 / 4.0
+    if rw / rh >= t:
+        hc, wc = rh, int(rh * t); yc, xc = 0, (rw - wc) // 2
+    else:
+        wc, hc = rw, int(rw / t); xc, yc = 0, (rh - hc) // 2
+    return img.crop((xc, yc, xc + wc, yc + hc))
+
+
+def convert_entry_13in3(entry_id):
+    """Convert a playlist entry for the 13.3" (1600×1200) screen.
+
+    - Landscape: 4:3 center crop → resize (1600, 1200) → rotate 90° CW → 1200×1600 BMP
+    - Portrait:  3:4 center crop → resize (1200, 1600) → 1200×1600 BMP
+    Returns True on success.
+    """
+    from db import get_playlist_entry, get_image_by_uuid
+    entry = get_playlist_entry(entry_id)
+    if not entry:
+        logger.error(f"convert_entry_13in3: entry {entry_id} not found")
+        return False
+    image = get_image_by_uuid(entry['image_uuid'])
+    if not image:
+        logger.error(f"convert_entry_13in3: image {entry['image_uuid']} not found")
+        return False
+
+    orig_fn  = image['original_filename']
+    src_path = os.path.join(ORIGINALS_DIR, orig_fn)
+    if not os.path.exists(src_path):
+        logger.error(f"convert_entry_13in3: original not found: {src_path}")
+        return False
+
+    try:
+        img = ImageOps.exif_transpose(Image.open(src_path)).convert('RGB')
+
+        bg     = entry.get('bg_color', '#ffffff') or '#ffffff'
+        hue_s  = float(entry.get('hue_shift',  0) or 0)
+        sat    = float(entry.get('saturation',  1) or 1)
+        val_a  = float(entry.get('value_adj',   1) or 1)
+        r_gain = float(entry.get('r_gain',      1) or 1)
+        g_gain = float(entry.get('g_gain',      1) or 1)
+        b_gain = float(entry.get('b_gain',      1) or 1)
+        rotate_deg = int(entry.get('rotate', 0) or 0) % 360
+
+        # Step 1: user rotate
+        if rotate_deg == 90:
+            img = img.transpose(Image.Transpose.ROTATE_90)
+        elif rotate_deg == 180:
+            img = img.transpose(Image.Transpose.ROTATE_180)
+        elif rotate_deg == 270:
+            img = img.transpose(Image.Transpose.ROTATE_270)
+        rw, rh = img.size
+
+        prefix = entry_artifact_prefix(entry_id)
+
+        # --- Landscape artifact: 4:3 crop → 1600×1200 → rotate 90° → 1200×1600 ---
+        land = _default_landscape_crop_13in3(img, rw, rh)
+        land = land.resize((1600, 1200), Image.Resampling.LANCZOS)
+        land = apply_color_adjustments(land, hue_s, sat, val_a, r_gain, g_gain, b_gain)
+        land = land.rotate(90, expand=True)  # → 1200×1600
+        Image.fromarray(
+            dither_floyd_steinberg(np.array(land, dtype=np.float32), PALETTE)
+        ).save(os.path.join(IMAGES_DIR, prefix + '_l.bmp'), format='BMP')
+
+        # --- Portrait artifact: 3:4 crop → 1200×1600 ---
+        port = _default_portrait_crop_13in3(img, rw, rh)
+        port = port.resize((1200, 1600), Image.Resampling.LANCZOS)
+        port = apply_color_adjustments(port, hue_s, sat, val_a, r_gain, g_gain, b_gain)
+        Image.fromarray(
+            dither_floyd_steinberg(np.array(port, dtype=np.float32), PALETTE)
+        ).save(os.path.join(IMAGES_DIR, prefix + '_p.bmp'), format='BMP')
+
+        # Invalidate old bins and regenerate
+        for sfx in ('_l_u.bin', '_l_f.bin', '_p_u.bin', '_p_f.bin'):
+            p = os.path.join(IMAGES_DIR, prefix + sfx)
+            if os.path.exists(p):
+                os.remove(p)
+        ensure_entry_bin_files_13in3(entry_id)
+        return True
+    except Exception as e:
+        logger.error(f"convert_entry_13in3({entry_id}): {e}")
+        return False
+
+
+def ensure_entry_bin_files_13in3(entry_id):
+    """Ensure 13in3 bin files for pe<entry_id> (no infix — entry names are unambiguous)."""
+    prefix = entry_artifact_prefix(entry_id)
+    ok = True
+    for orient_sfx in ('_l', '_p'):
+        bmp_path = os.path.join(IMAGES_DIR, prefix + orient_sfx + '.bmp')
+        u_path   = os.path.join(IMAGES_DIR, prefix + orient_sfx + '_u.bin')
+        f_path   = os.path.join(IMAGES_DIR, prefix + orient_sfx + '_f.bin')
+        if not os.path.exists(bmp_path):
+            ok = False; continue
+        try:
+            if not os.path.exists(u_path):
+                img = Image.open(bmp_path).convert('RGB')
+                assert img.size == (1200, 1600), f"Expected (1200,1600) for 13in3 entry, got {img.size}"
+                data = rgb_array_to_spectra6_bitstream_13in3(np.array(img, dtype=np.uint8))
+                with open(u_path, 'wb') as fh: fh.write(data)
+            else:
+                with open(u_path, 'rb') as fh: data = fh.read()
+            if not os.path.exists(f_path):
+                with open(f_path, 'wb') as fh: fh.write(_flip_bitstream_13in3(data))
+        except Exception as e:
+            logger.error(f"ensure_entry_bin_files_13in3(entry={entry_id}){orient_sfx}: {e}"); ok = False
+    return ok
+
+
+def ensure_entry_bin_files_for_screen(entry_id, w, h):
+    """Dispatch to the appropriate entry bin-file ensurer based on target screen size."""
+    if (w, h) == _DEFAULT_SCREEN:
+        return ensure_entry_bin_files(entry_id)
+    if (w, h) == (1600, 1200):
+        return ensure_entry_bin_files_13in3(entry_id)
+    logger.warning(f"No entry bin handler for {w}x{h}; skipping entry {entry_id}")
+    return False
+
+
+def convert_entry_for_screen(entry_id, w=None, h=None):
+    """Convert a playlist entry for its playlist's screen size (auto-detected if not given)."""
+    if w is None or h is None:
+        from db import get_playlist_entry
+        entry = get_playlist_entry(entry_id)
+        if not entry:
+            logger.error(f"convert_entry_for_screen: entry {entry_id} not found")
+            return False
+        sizes = get_screen_types_for_playlist(entry['playlist_id'])
+        w, h = next(iter(sizes)) if sizes else _DEFAULT_SCREEN
+    if (w, h) == _DEFAULT_SCREEN:
+        return convert_entry(entry_id)
+    if (w, h) == (1600, 1200):
+        return convert_entry_13in3(entry_id)
+    logger.warning(f"No entry converter for {w}x{h}; entry {entry_id}")
+    return False
+
+
 def reconvert_for_playlist_screen(base, playlist_id):
     """
     Delete artifacts for the screen types used by *playlist_id*, then reconvert

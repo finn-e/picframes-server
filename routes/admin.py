@@ -43,7 +43,7 @@ from image import (
     delete_all_artifacts, delete_entry_artifacts,
     apply_color_adjustments, dither_floyd_steinberg, PALETTE,
     get_screen_types_for_image, _DEFAULT_SCREEN, convert_image_for_screen,
-    convert_entry, ensure_entry_bin_files,
+    convert_entry, convert_entry_for_screen, ensure_entry_bin_files,
     _default_landscape_crop_img, _default_portrait_crop_img, _crop_with_outfill,
     screen_size_for_profile,
 )
@@ -135,8 +135,8 @@ def upload_file():
             def _bg_playlist(eid=entry_id, p=pid, op=original_path, b=base):
                 try:
                     convert_image(op, b)
-                    from image import convert_entry, ensure_artifacts_for_playlist
-                    convert_entry(eid)
+                    from image import convert_entry_for_screen, ensure_artifacts_for_playlist
+                    convert_entry_for_screen(eid)
                     ensure_artifacts_for_playlist(p)
                     trigger_redownload()
                 except Exception as e:
@@ -613,7 +613,7 @@ def playlist_add_image(pid):
     # Background: generate entry artifacts + old screen-typed artifacts
     def _bg_convert(eid):
         try:
-            convert_entry(eid)
+            convert_entry_for_screen(eid)
             ensure_artifacts_for_playlist(pid)
             trigger_redownload()
         except Exception as e:
@@ -666,7 +666,7 @@ def playlist_rename_entry(pid, entry_id):
     def _bg(eid):
         try:
             delete_entry_artifacts(eid)
-            convert_entry(eid)
+            convert_entry_for_screen(eid)
             trigger_redownload()
         except Exception as e:
             logger.error(f"rename_entry bg({eid}): {e}")
@@ -873,7 +873,7 @@ def entry_edit_save(entry_id):
     def _bg(eid):
         try:
             delete_entry_artifacts(eid)
-            convert_entry(eid)
+            convert_entry_for_screen(eid)
             trigger_redownload()
         except Exception as e:
             logger.error(f"entry_edit_save bg({eid}): {e}")
@@ -894,7 +894,7 @@ def entry_reconvert(entry_id):
     def _bg(eid):
         try:
             delete_entry_artifacts(eid)
-            convert_entry(eid)
+            convert_entry_for_screen(eid)
             trigger_redownload()
         except Exception as e:
             logger.error(f"entry_reconvert bg({eid}): {e}")

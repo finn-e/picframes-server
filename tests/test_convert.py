@@ -114,6 +114,33 @@ def test_flip_bin_is_bitreversed_variant():
     assert _flip_bitstream(f) == u
 
 
+def test_convert_entry_13in3_produces_correct_dimensions():
+    """13in3 playlist entry produces 1200×1600 BMPs and 960,000-byte bins."""
+    eid = _make_entry(base='photo13')
+    from image import convert_entry_13in3, entry_artifact_prefix as eap
+    assert convert_entry_13in3(eid) is True
+    prefix = eap(eid)
+    l_bmp = Image.open(os.path.join(db.IMAGES_DIR, prefix + '_l.bmp'))
+    p_bmp = Image.open(os.path.join(db.IMAGES_DIR, prefix + '_p.bmp'))
+    assert l_bmp.size == (1200, 1600)
+    assert p_bmp.size == (1200, 1600)
+    for sfx in ('_l_u.bin', '_l_f.bin', '_p_u.bin', '_p_f.bin'):
+        p = os.path.join(db.IMAGES_DIR, prefix + sfx)
+        assert os.path.exists(p), sfx
+        assert os.path.getsize(p) == 960000  # 1200×1600×4bpp/8 packed 13in3
+
+
+def test_convert_entry_for_screen_dispatches_correctly():
+    """convert_entry_for_screen dispatches to 13in3 path for (1600, 1200)."""
+    from image import convert_entry_for_screen, entry_artifact_prefix as eap
+    eid = _make_entry(base='screen_dispatch')
+    result = convert_entry_for_screen(eid, 1600, 1200)
+    assert result is True
+    prefix = eap(eid)
+    l_bmp = Image.open(os.path.join(db.IMAGES_DIR, prefix + '_l.bmp'))
+    assert l_bmp.size == (1200, 1600)
+
+
 def test_real_dither_tiny():
     """Exercise the REAL Floyd-Steinberg dither (unpatched) on a tiny array."""
     rng = np.random.default_rng(42)

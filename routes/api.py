@@ -29,7 +29,8 @@ from db import (
 )
 from image import (ensure_bin_files, ensure_bin_files_for_screen,
                    screen_size_for_profile, _artifact_infix,
-                   ensure_entry_bin_files, entry_artifact_prefix,
+                   ensure_entry_bin_files, ensure_entry_bin_files_for_screen,
+                   entry_artifact_prefix, convert_entry_for_screen,
                    normalize_device_type, DEVICE_TYPE_ALIASES, _DEFAULT_SCREEN)
 
 logger = logging.getLogger(__name__)
@@ -748,8 +749,7 @@ def _daily_zip_inner():
             zf.writestr('list.json',  manifest)
             for entry in candidate_entries:
                 # Ensure bins exist (synchronous safety net; background thread handles normal case)
-                ensure_entry_bin_files(entry['id'])
-                # Entry artifacts are always 800×480 (13in3 not yet entry-scoped)
+                ensure_entry_bin_files_for_screen(entry['id'], scr_w, scr_h)
                 bin_sfx  = f'_{orient_char}_{"f" if effective_flip else "u"}.bin'
                 bin_path = os.path.join(IMAGES_DIR, entry_artifact_prefix(entry['id']) + bin_sfx)
                 if os.path.exists(bin_path):
