@@ -2086,7 +2086,8 @@ function drawDrawerCropRects(card) {
         if (inp.dataset.orient === 'p') pOn = inp.checked;
     });
 
-    const ratios = (card.dataset.screenRatios || '5x3').split(' ');
+    const plCard = card.closest('.playlist-card');
+    const ratios = ((plCard && plCard.dataset.screenRatios) || '5x3').split(' ');
     const has53 = ratios.includes('5x3');
     const has43 = ratios.includes('4x3');
 
