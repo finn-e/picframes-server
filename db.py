@@ -66,7 +66,7 @@ def _col(conn, table, col, definition):
 
 def generate_friend_code():
     import random
-    chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     c1 = "".join(random.choices(chars, k=4))
     c2 = "".join(random.choices(chars, k=4))
     return f"{c1}-{c2}"
@@ -440,7 +440,7 @@ def add_friend_by_code(user_id, code):
     try:
         conn = get_db()
         # Find friend
-        friend = conn.execute("SELECT id, username FROM users WHERE friend_code=?", (code.strip(),)).fetchone()
+        friend = conn.execute("SELECT id, username FROM users WHERE friend_code=?", (code.strip().upper(),)).fetchone()
         if not friend:
             conn.close()
             return False, "Friend code not found"

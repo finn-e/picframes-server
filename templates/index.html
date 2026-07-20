@@ -331,7 +331,7 @@
                     <!-- Friends dynamically loaded here via JS -->
                 </div>
                 <div style="display:flex; gap:0.5rem;">
-                    <input type="text" id="add-friend-code-input" placeholder="Friend Code (xxxx-xxxx)" style="flex:1; padding:0.4rem; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--text); font-size:0.85rem; font-family:monospace;">
+                    <input type="text" id="add-friend-code-input" placeholder="Friend Code (XXXX-XXXX)" style="flex:1; padding:0.4rem; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--text); font-size:0.85rem; font-family:monospace; text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()">
                     <button class="btn btn-primary btn-sm" style="padding: 0.2rem 0.75rem; font-size: 0.85rem;" onclick="addFriendFromInput()">Add</button>
                 </div>
             </div>
@@ -365,6 +365,7 @@
                     </div>
                     <div style="display:flex; align-items:center; gap:0.5rem; margin-top:0.2rem; flex-wrap:wrap;">
                         <span class="device-mac">{{ dev.mac }}</span>
+                        {% if dev.hw_profile %}<span style="font-size:0.78rem; color:var(--muted);">{{ dev.hw_profile }}</span>{% endif %}
                         <span style="font-size:0.78rem; color:var(--muted);">FW: {{ dev.fw_version or 'unknown' }}</span>
                         <label style="font-size:0.78rem;" class="toggle-wrap">
                             <input type="checkbox" class="toggle" {% if dev.flip_l %}checked{% endif %} onchange="setDeviceFlip('{{ dev.mac }}', 'l', this.checked)" title="Flip landscape">
