@@ -237,6 +237,12 @@ def init_db():
 
     _col(conn, 'users', 'friend_code', 'TEXT DEFAULT NULL')
 
+    # Fix hw_profile: 13in3 board was incorrectly registered as EE04; it is EE02
+    conn.execute(
+        "UPDATE devices SET hw_profile='Seeed-EE02-Spectra6-13in3' WHERE hw_profile='Seeed-EE04-Spectra6-13in3'"
+    )
+    conn.commit()
+
     # Backfill missing friend codes, and regen any old non-uppercase-alpha codes
     import re as _re
     _new_fmt = _re.compile(r'^[A-Z]{4}-[A-Z]{4}$')

@@ -25,7 +25,7 @@ def test_alias_normalization_xiao_7in3():
 
 
 def test_alias_normalization_xiao_13in3():
-    assert normalize_device_type('XIAO-EE04-13in3') == 'Seeed-EE04-Spectra6-13in3'
+    assert normalize_device_type('XIAO-EE04-13in3') == 'Seeed-EE02-Spectra6-13in3'
 
 
 def test_alias_normalization_photpainter():
@@ -33,7 +33,7 @@ def test_alias_normalization_photpainter():
 
 
 def test_canonical_names_pass_through():
-    for name in ('Seeed-EE04-Spectra6-7in3', 'Seeed-EE04-Spectra6-13in3',
+    for name in ('Seeed-EE04-Spectra6-7in3', 'Seeed-EE02-Spectra6-13in3',
                  'Waveshare-PhotoPainter-7in3'):
         assert normalize_device_type(name) == name
 
@@ -43,7 +43,7 @@ def test_unknown_type_passes_through():
 
 
 def test_canonical_names_in_screen_types():
-    for name in ('Seeed-EE04-Spectra6-7in3', 'Seeed-EE04-Spectra6-13in3',
+    for name in ('Seeed-EE04-Spectra6-7in3', 'Seeed-EE02-Spectra6-13in3',
                  'Waveshare-PhotoPainter-7in3'):
         assert name in SCREEN_TYPES
 
@@ -110,7 +110,7 @@ def test_register_type_default_13in3_stored(client, logged_in):
     """13in3 type default (1600x1200) is persisted even without explicit resolution."""
     r = client.post('/api/register', json={
         'mac': TEST_MAC, 'username': 'admin', 'password': 'admin',
-        'hw_profile': 'Seeed-EE04-Spectra6-13in3',
+        'hw_profile': 'Seeed-EE02-Spectra6-13in3',
     })
     assert r.status_code == 200
     res = db.get_device_resolution(TEST_MAC)
@@ -144,7 +144,7 @@ def test_playlist_locked_on_first_assignment(logged_in):
     # Register a 13in3 device
     client.post('/api/register', json={
         'mac': TEST_MAC, 'username': 'admin', 'password': 'admin',
-        'hw_profile': 'Seeed-EE04-Spectra6-13in3',
+        'hw_profile': 'Seeed-EE02-Spectra6-13in3',
     })
     r = client.post('/device_playlist', json={'mac': TEST_MAC, 'playlist_id': pid})
     assert r.status_code == 200
@@ -163,7 +163,7 @@ def test_playlist_lock_mismatch_rejected(logged_in):
     # First device: 13in3
     client.post('/api/register', json={
         'mac': TEST_MAC, 'username': 'admin', 'password': 'admin',
-        'hw_profile': 'Seeed-EE04-Spectra6-13in3',
+        'hw_profile': 'Seeed-EE02-Spectra6-13in3',
     })
     r = client.post('/device_playlist', json={'mac': TEST_MAC, 'playlist_id': pid})
     assert r.status_code == 200
@@ -204,7 +204,7 @@ def test_playlist_unlocked_when_last_device_removed(logged_in):
 
     client.post('/api/register', json={
         'mac': TEST_MAC, 'username': 'admin', 'password': 'admin',
-        'hw_profile': 'Seeed-EE04-Spectra6-13in3',
+        'hw_profile': 'Seeed-EE02-Spectra6-13in3',
     })
     r = client.post('/device_playlist', json={'mac': TEST_MAC, 'playlist_id': pid})
     assert r.status_code == 200

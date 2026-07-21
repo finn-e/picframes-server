@@ -20,12 +20,12 @@ logger = logging.getLogger(__name__)
 SCREEN_TYPES = {
     # Canonical names
     'Seeed-EE04-Spectra6-7in3':   (800,  480),
-    'Seeed-EE04-Spectra6-13in3':  (1600, 1200),
+    'Seeed-EE02-Spectra6-13in3':  (1600, 1200),
     'Waveshare-PhotoPainter-7in3': (800,  480),
     # Legacy names kept so pre-alias-map entries in the DB still resolve.
     'ESP32-S3-PhotoPainter': (800,  480),
     'XIAO-EE04-7in3':        (800,  480),
-    'XIAO-EE04-13in3':       (1600, 1200),
+    'XIAO-EE04-13in3':       (1600, 1200),  # legacy alias
 }
 _DEFAULT_SCREEN = (800, 480)
 
@@ -35,7 +35,7 @@ _DEFAULT_SCREEN = (800, 480)
 DEVICE_TYPE_ALIASES = {
     'ESP32-S3-PhotoPainter': 'Waveshare-PhotoPainter-7in3',
     'XIAO-EE04-7in3':        'Seeed-EE04-Spectra6-7in3',
-    'XIAO-EE04-13in3':       'Seeed-EE04-Spectra6-13in3',
+    'XIAO-EE04-13in3':       'Seeed-EE02-Spectra6-13in3',
 }
 
 
