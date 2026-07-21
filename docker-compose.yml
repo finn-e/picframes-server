@@ -1,6 +1,12 @@
 version: '3.8'
 
 services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
   picframes-server:
     image: ghcr.io/finn-e/picframes:latest
     container_name: picframes-server
@@ -14,6 +20,25 @@ services:
       - SHARE_DIR=/share
       - CONFIG_DIR=/config
       - FIRMWARE_DIR=/app/firmware
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  worker:
+    image: ghcr.io/finn-e/picframes:latest
+    container_name: picframes-worker
+    command: celery -A tasks worker --loglevel=info --concurrency=1
+    volumes:
+      - ./data/share:/share
+      - ./data/config:/config
+    environment:
+      - SHARE_DIR=/share
+      - CONFIG_DIR=/config
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-dev-secret}
+    depends_on:
+      - redis
     restart: unless-stopped
 
   # Build from source (used when GHCR image isn't available for your platform)

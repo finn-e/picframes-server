@@ -14,7 +14,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source code and firmware
-COPY app.py db.py ./
+# Same image is used for both the Flask server and the Celery worker (different CMD)
+COPY app.py db.py tasks.py ./
 COPY image/ ./image/
 COPY routes/ ./routes/
 COPY templates/ ./templates/

@@ -347,6 +347,15 @@
             </div>
         </div>
 
+        {% if current_user.is_admin %}
+        <!-- Queue Status Card -->
+        <div class="card" id="queue-status-card" style="margin-bottom:1rem;">
+            <div class="card-title" style="font-size:1rem; margin-bottom:0.5rem;">⚙ Worker Queue</div>
+            <div id="queue-status-body" style="font-size:0.85rem; color:var(--muted);">Checking…</div>
+            <div id="queue-task-list" style="font-size:0.78rem; color:var(--muted); margin-top:0.3rem;"></div>
+        </div>
+        {% endif %}
+
         <!-- Devices Card -->
         <div class="card">
             <div class="card-title">📡 Registered PicFrames</div>
@@ -2479,6 +2488,45 @@ function initFrameStatusBadges() {
 }
 
 document.addEventListener('DOMContentLoaded', () => setTimeout(initFrameStatusBadges, 800));
+
+async function _pollQueueStatus() {
+  const body = document.getElementById('queue-status-body');
+  const list = document.getElementById('queue-task-list');
+  if (!body) return;
+  try {
+    const r = await fetch('/admin/queue-status');
+    if (!r.ok) { body.textContent = 'Queue: unavailable'; return; }
+    const d = await r.json();
+    if (d.error && d.active === 0 && d.pending === 0) {
+      body.textContent = 'Queue: unavailable (' + d.error + ')';
+      if (list) list.textContent = '';
+      return;
+    }
+    if (d.active === 0 && d.pending === 0) {
+      body.textContent = 'Queue: idle';
+      if (list) list.textContent = '';
+    } else {
+      body.textContent = `Queue: ${d.active} active, ${d.pending} pending`;
+      if (list && d.tasks && d.tasks.length) {
+        list.textContent = d.tasks.slice(0, 5).map(t => {
+          const name = (t.name || t.type || '?').replace('tasks.', '');
+          const args = t.args ? JSON.stringify(t.args).slice(0, 40) : '';
+          return `• ${name} ${args}`;
+        }).join('\n');
+      }
+    }
+  } catch (_) {
+    body.textContent = 'Queue: unavailable';
+  }
+}
+
+function initQueueStatus() {
+  if (!document.getElementById('queue-status-card')) return;
+  _pollQueueStatus();
+  setInterval(_pollQueueStatus, 5000);
+}
+
+document.addEventListener('DOMContentLoaded', () => setTimeout(initQueueStatus, 1000));
 </script>
 
 <!-- Share Modal -->

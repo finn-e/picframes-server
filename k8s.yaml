@@ -42,6 +42,8 @@ spec:
           value: "/share"
         - name: CONFIG_DIR
           value: "/config"
+        - name: REDIS_URL
+          value: "redis://picframes-redis:6379/0"
         volumeMounts:
         - name: nfs-share
           mountPath: /share

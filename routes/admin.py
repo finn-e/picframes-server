@@ -53,6 +53,14 @@ from image import (
 
 logger = logging.getLogger(__name__)
 
+try:
+    from tasks import enqueue_entry_dither, celery_app as _celery_app
+    _TASKS_AVAILABLE = True
+except Exception:
+    _TASKS_AVAILABLE = False
+    _celery_app = None
+    def enqueue_entry_dither(entry_id, playlist_id): pass
+
 admin_bp = Blueprint('admin', __name__)
 
 
@@ -618,6 +626,7 @@ def playlist_add_image(pid):
         try:
             convert_entry_for_screen(eid)
             ensure_artifacts_for_playlist(pid)
+            enqueue_entry_dither(eid, pid)
             trigger_redownload()
         except Exception as e:
             logger.error(f"playlist_add_image bg({eid}): {e}")
@@ -892,6 +901,7 @@ def entry_edit_save(entry_id):
         try:
             delete_entry_artifacts(eid)
             convert_entry_for_screen(eid)
+            enqueue_entry_dither(eid, entry['playlist_id'])
             trigger_redownload()
         except Exception as e:
             logger.error(f"entry_edit_save bg({eid}): {e}")
@@ -926,6 +936,7 @@ def entry_reconvert(entry_id):
         try:
             delete_entry_artifacts(eid)
             convert_entry_for_screen(eid)
+            enqueue_entry_dither(eid, entry['playlist_id'])
             trigger_redownload()
         except Exception as e:
             logger.error(f"entry_reconvert bg({eid}): {e}")
@@ -1192,3 +1203,23 @@ def playlist_collaborators_endpoint(pid):
     collabs = get_playlist_collaborators(pid)
     friends = get_friends(uid)
     return jsonify({'ok': True, 'collaborators': collabs, 'friends': friends})
+
+
+@admin_bp.route('/queue-status', methods=['GET'])
+def queue_status():
+    """Return pending and active Celery task counts."""
+    if not _TASKS_AVAILABLE or _celery_app is None:
+        return jsonify({'active': 0, 'pending': 0, 'tasks': [], 'error': 'Celery not available'})
+    try:
+        inspect       = _celery_app.control.inspect(timeout=1.0)
+        active        = inspect.active()   or {}
+        reserved      = inspect.reserved() or {}
+        active_tasks  = [t for tasks in active.values()   for t in tasks]
+        pending_tasks = [t for tasks in reserved.values() for t in tasks]
+        return jsonify({
+            'active':  len(active_tasks),
+            'pending': len(pending_tasks),
+            'tasks':   active_tasks[:10] + pending_tasks[:10],
+        })
+    except Exception as e:
+        return jsonify({'active': 0, 'pending': 0, 'tasks': [], 'error': str(e)})
