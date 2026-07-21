@@ -14,7 +14,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source code and firmware
-COPY app.py db.py image.py ./
+COPY app.py db.py ./
+COPY image/ ./image/
 COPY routes/ ./routes/
 COPY templates/ ./templates/
 COPY converters/ ./converters/
