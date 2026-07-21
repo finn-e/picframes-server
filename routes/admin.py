@@ -14,11 +14,12 @@ from PIL import Image, ImageOps
 
 import db
 from db import (
-    load_config, save_config, load_enabled, save_enabled,
+    load_config, save_config, load_state, state_lock, load_enabled, save_enabled,
     load_crops, save_crops, load_image_order, save_image_order,
     load_playlists, load_playlist, create_playlist, update_playlist, delete_playlist,
     get_playlist_images, add_playlist_image, remove_playlist_image, reorder_playlist_images,
     get_device_playlist_id, set_device_playlist, get_playlist_devices,
+    get_device_active_entries,
     get_global_setting, set_global_setting,
     create_user, delete_user,
     trigger_redownload, flags, ORIGINALS_DIR, IMAGES_DIR, ALLOWED_EXTENSIONS,
@@ -46,7 +47,8 @@ from image import (
     convert_entry_for_screen, ensure_entry_bin_files,
     _default_landscape_crop_img, _default_portrait_crop_img, _crop_with_outfill,
     screen_size_for_profile, get_screen_types_for_playlist,
-    entry_artifacts_ready,
+    entry_artifacts_ready, ratios_for_screen,
+    zip_cache_path,
 )
 
 logger = logging.getLogger(__name__)
@@ -1128,6 +1130,56 @@ def playlist_unshare_endpoint(pid):
         
     ok = unshare_playlist(pid, int(friend_id))
     return jsonify({'ok': ok})
+
+
+@admin_bp.route('/device-status/<mac>', methods=['GET'])
+def device_status(mac):
+    """Return sync status for a registered frame.
+
+    Statuses:
+      getting_ready — bins missing for one or more playlist entries
+      ready         — all bins exist and zip is built, but device hasn't downloaded it yet
+      synced        — device's last downloaded zip version matches current
+    """
+    mac = mac.lower()
+    cfg = load_config()
+    dev_cfg = next((d for d in cfg.get('devices', []) if d['mac'].lower() == mac), None)
+    if not dev_cfg:
+        return jsonify({'error': 'Device not found'}), 404
+
+    orientation  = dev_cfg.get('orientation', 'portrait')
+    hw_profile   = dev_cfg.get('hw_profile', '')
+    scr_w, scr_h = screen_size_for_profile(hw_profile)
+    flip         = dev_cfg.get('flip_l', False) if orientation == 'landscape' else dev_cfg.get('flip_p', False)
+    orient_char  = 'l' if orientation == 'landscape' else 'p'
+    flip_char    = 'f' if flip else 'u'
+    pid          = get_device_playlist_id(mac)
+
+    with state_lock:
+        state = load_state()
+    device_zip_version = state.get('device_zip_versions', {}).get(mac, '')
+
+    if pid is None:
+        return jsonify({'status': 'synced', 'zip_version': '', 'device_zip_version': '', 'missing_bins': 0})
+
+    entries      = list(get_device_active_entries(mac, orientation))
+    entry_titles = [e['title'] for e in entries]
+    zip_version  = __import__('hashlib').md5((','.join(entry_titles) + orientation).encode()).hexdigest()[:8]
+
+    missing = sum(1 for e in entries if not entry_artifacts_ready(e['id'], scr_w, scr_h))
+    if missing:
+        status = 'getting_ready'
+    elif device_zip_version != zip_version:
+        status = 'ready'
+    else:
+        status = 'synced'
+
+    return jsonify({
+        'status':              status,
+        'zip_version':         zip_version,
+        'device_zip_version':  device_zip_version,
+        'missing_bins':        missing,
+    })
 
 
 @admin_bp.route('/playlists/<int:pid>/collaborators', methods=['GET'])

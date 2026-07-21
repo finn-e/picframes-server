@@ -32,7 +32,8 @@ from image import (ensure_bin_files, ensure_bin_files_for_screen,
                    ensure_entry_bin_files, ensure_entry_bin_files_for_screen,
                    entry_artifact_prefix, entry_bin_path,
                    convert_entry_for_screen, ratios_for_screen,
-                   normalize_device_type, DEVICE_TYPE_ALIASES, _DEFAULT_SCREEN)
+                   normalize_device_type, DEVICE_TYPE_ALIASES, _DEFAULT_SCREEN,
+                   serve_cached_or_build, invalidate_device_zip)
 
 logger = logging.getLogger(__name__)
 
@@ -247,9 +248,13 @@ def api_change_orientation():
     if err:
         return err
     dev_cfg['orientation'] = server_orient
-    trigger_redownload(dev_cfg['mac'].lower())
+    mac = dev_cfg['mac'].lower()
+    trigger_redownload(mac)
+    invalidate_device_zip(mac)
     save_config(cfg, owner_id=owner_id)
-    return jsonify({'ok': True, 'orientation': server_orient})
+    return jsonify({'ok': True, 'orientation': server_orient,
+                    'show_logo': True,
+                    'message': 'No images for this orientation, syncing…'})
 
 
 # ---------------------------------------------------------------------------
@@ -683,23 +688,21 @@ def battery_history(mac):
 # ---------------------------------------------------------------------------
 
 def _daily_zip_inner():
-    caller_ip  = _caller_ip()
     dev_cfg, cfg, owner_id, err = _require_device('/daily-zip')
     if err:
         return err
     mac = dev_cfg['mac'].lower()
 
-    mac_lower = mac
     with state_lock:
         state = load_state()
-        force_redownload = state.get('redownload', {}).get(mac_lower, False)
-        state.setdefault('redownload', {})[mac_lower] = False
+        force_redownload = state.get('redownload', {}).get(mac, False)
+        state.setdefault('redownload', {})[mac] = False
         save_state(state)
 
-    orientation = dev_cfg.get('orientation', 'portrait')
-    hw_profile  = dev_cfg.get('hw_profile', '')
-    pid         = get_device_playlist_id(mac_lower)
-    pl_settings = get_playlist_settings(pid)
+    orientation  = dev_cfg.get('orientation', 'portrait')
+    hw_profile   = dev_cfg.get('hw_profile', '')
+    pid          = get_device_playlist_id(mac)
+    pl_settings  = get_playlist_settings(pid)
 
     orient_char  = 'l' if orientation == 'landscape' else 'p'
     flip         = dev_cfg.get('flip_l', False) if orientation == 'landscape' else dev_cfg.get('flip_p', False)
@@ -717,17 +720,16 @@ def _daily_zip_inner():
         "portrait_flipped":  bool(dev_cfg.get('flip_p', False)),
     }
 
-    queued = state.get('queued_image')
+    queued    = state.get('queued_image')
     q_applies = queued and (queued.get('source') == 'general' or
-                            queued.get('source', '').lower() == mac_lower)
+                            queued.get('source', '').lower() == mac)
 
     if pid is not None:
-        # ---- Entry-based path for playlist devices ----
-        entries = get_device_active_entries(mac_lower, orientation)
+        # ---- Entry-based path (playlist devices) — uses per-device zip cache ----
+        entries           = get_device_active_entries(mac, orientation)
         candidate_entries = list(entries)
         entry_ids_in_pool = {e['id'] for e in entries}
 
-        # Append queued entry if out-of-pool
         if q_applies and queued.get('entry_id') is not None:
             q_eid = queued['entry_id']
             if q_eid not in entry_ids_in_pool:
@@ -735,33 +737,27 @@ def _daily_zip_inner():
                 if q_entry:
                     candidate_entries.append(q_entry)
 
+        # zip_version derived from the canonical pool (not including queued extras),
+        # matching what _daily_config_inner sends so device can compare.
         entry_titles = [e['title'] for e in entries]
         zip_version  = hashlib.md5((','.join(entry_titles) + orientation).encode()).hexdigest()[:8]
+
         client_version = request.args.get('version', '').strip()
         if not force_redownload and client_version and client_version == zip_version:
             return Response(status=304)
 
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, mode='w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
-            zf.writestr('config.json', json.dumps(serializable_cfg, indent=2))
-            zip_names = [e['title'] + zip_suffix for e in candidate_entries]
-            manifest  = json.dumps(zip_names, indent=2)
-            zf.writestr('index.json', manifest)
-            zf.writestr('list.json',  manifest)
-            for entry in candidate_entries:
-                # Ensure bins exist (synchronous safety net; background thread handles normal case)
-                ensure_entry_bin_files_for_screen(entry['id'], scr_w, scr_h)
-                l_ratio, p_ratio = ratios_for_screen(scr_w, scr_h)
-                ratio    = l_ratio if orient_char == 'l' else p_ratio
-                bin_path = entry_bin_path(entry['id'], scr_w, scr_h, ratio, flip_char)
-                if os.path.exists(bin_path):
-                    zf.write(bin_path, arcname=entry['title'] + zip_suffix)
-    else:
-        # ---- Legacy base-based path for non-playlist devices ----
-        active_bases = get_device_active_bases(mac_lower, orientation)
-        store_suffix = f'{infix}_{orient_char}_{"f" if effective_flip else "u"}.bin'
+        zip_bytes, _ = serve_cached_or_build(
+            mac, candidate_entries, orient_char, flip_char, scr_w, scr_h,
+            serializable_cfg, force=force_redownload,
+        )
+        return _zip_response(zip_bytes, zip_version, mac)
 
-        zip_version  = hashlib.md5((','.join(active_bases) + orientation).encode()).hexdigest()[:8]
+    else:
+        # ---- Legacy base-based path (non-playlist devices) — built on-demand ----
+        active_bases = get_device_active_bases(mac, orientation)
+        store_suffix = f'{infix}_{orient_char}_{flip_char}.bin'
+
+        zip_version    = hashlib.md5((','.join(active_bases) + orientation).encode()).hexdigest()[:8]
         client_version = request.args.get('version', '').strip()
         if not force_redownload and client_version and client_version == zip_version:
             return Response(status=304)
@@ -785,10 +781,24 @@ def _daily_zip_inner():
                 if os.path.exists(bin_path):
                     zf.write(bin_path, arcname=base + zip_suffix)
 
-    size = buf.tell(); buf.seek(0)
-    return Response(buf, mimetype='application/zip',
-                    headers={'Content-Disposition': 'attachment; filename="daily.zip"',
-                             'Content-Length': str(size)})
+        zip_bytes = buf.getvalue()
+        return _zip_response(zip_bytes, zip_version, mac)
+
+
+def _zip_response(zip_bytes, zip_version, mac):
+    """Return a zip Response and record that this device received this version."""
+    with state_lock:
+        state = load_state()
+        state.setdefault('device_zip_versions', {})[mac] = zip_version
+        save_state(state)
+    return Response(
+        zip_bytes,
+        mimetype='application/zip',
+        headers={
+            'Content-Disposition': 'attachment; filename="daily.zip"',
+            'Content-Length': str(len(zip_bytes)),
+        },
+    )
 
 
 @api_bp.route('/api/daily-zip', methods=['GET'])

@@ -17,12 +17,13 @@ SHARE_DIR     = os.environ.get('SHARE_DIR', '/share')
 CONFIG_DIR    = os.environ.get('CONFIG_DIR', '/config')
 ORIGINALS_DIR = os.path.join(SHARE_DIR, 'originals')
 IMAGES_DIR    = os.path.join(SHARE_DIR, 'images')
+ZIPS_DIR      = os.path.join(SHARE_DIR, 'zips')
 
 ALLOWED_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.bmp'}
 LANDSCAPE_SUFFIX   = '_l.bmp'
 PORTRAIT_SUFFIX    = '_p.bmp'
 
-for _d in (SHARE_DIR, ORIGINALS_DIR, IMAGES_DIR, CONFIG_DIR):
+for _d in (SHARE_DIR, ORIGINALS_DIR, IMAGES_DIR, ZIPS_DIR, CONFIG_DIR):
     os.makedirs(_d, exist_ok=True)
 
 DB_PATH = os.path.join(CONFIG_DIR, 'picframes.db')
@@ -1006,7 +1007,7 @@ def load_state():
         "last_seen": {}, "device_ips": {}, "device_images": {},
         "redownload": {}, "queued_image": None,
         "device_indices": {}, "playlist_indices": {},
-        "playlist_last_advance": {},
+        "playlist_last_advance": {}, "device_zip_versions": {},
     }
     try:
         conn = get_db()
@@ -1016,7 +1017,7 @@ def load_state():
                 defaults[k] = int(v)
             elif k in ('last_seen', 'device_ips', 'device_images', 'redownload',
                         'queued_image', 'device_indices', 'playlist_indices',
-                        'playlist_last_advance'):
+                        'playlist_last_advance', 'device_zip_versions'):
                 try:
                     defaults[k] = json.loads(v)
                 except Exception:
