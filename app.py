@@ -84,6 +84,12 @@ try:
 except Exception as e:
     logger.error(f"init_db failed: {e}")
 
+try:
+    from image import wipe_all_old_named_bins
+    wipe_all_old_named_bins()
+except Exception as e:
+    logger.error(f"wipe_all_old_named_bins failed: {e}")
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8000))
     zc   = start_mdns_broadcast(port)

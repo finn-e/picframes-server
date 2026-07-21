@@ -2,7 +2,7 @@
 import os
 
 import db
-from image import entry_artifact_prefix
+from image import entry_artifact_prefix, entry_bmp_path, entry_bin_path
 from tests.conftest import make_original
 
 
@@ -32,9 +32,10 @@ def test_add_image_produces_entry_artifacts(logged_in):
     make_original('photo')
     pid = _create_playlist(logged_in)
     eid = _add_entry(logged_in, pid)
-    prefix = entry_artifact_prefix(eid)
-    for sfx in ('_l.bmp', '_p.bmp', '_l_u.bin', '_l_f.bin', '_p_u.bin', '_p_f.bin'):
-        assert os.path.exists(os.path.join(db.IMAGES_DIR, prefix + sfx)), sfx
+    assert os.path.exists(entry_bmp_path(eid, 800, 480, 'l')), '_800x480_l.bmp'
+    assert os.path.exists(entry_bmp_path(eid, 800, 480, 'p')), '_800x480_p.bmp'
+    for ratio, flip in (('l53', 'u'), ('l53', 'f'), ('p35', 'u'), ('p35', 'f')):
+        assert os.path.exists(entry_bin_path(eid, 800, 480, ratio, flip)), f'{ratio}_{flip}.bin'
 
 
 def test_rename_entry_sanitizes(logged_in):
@@ -131,12 +132,11 @@ def test_remove_entry_deletes_row_and_artifacts(logged_in):
     make_original('photo')
     pid = _create_playlist(logged_in)
     eid = _add_entry(logged_in, pid)
-    prefix = entry_artifact_prefix(eid)
-    assert os.path.exists(os.path.join(db.IMAGES_DIR, prefix + '_l.bmp'))
+    assert os.path.exists(entry_bmp_path(eid, 800, 480, 'l'))
     r = logged_in.post(f'/playlists/{pid}/remove_entry/{eid}')
     assert r.status_code == 200
     assert db.get_playlist_entry(eid) is None
-    assert not os.path.exists(os.path.join(db.IMAGES_DIR, prefix + '_l.bmp'))
+    assert not os.path.exists(entry_bmp_path(eid, 800, 480, 'l'))
 
 
 def test_playlist_cap_of_10_entries(logged_in):

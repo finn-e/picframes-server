@@ -43,7 +43,7 @@ from image import (
     delete_all_artifacts, delete_entry_artifacts,
     apply_color_adjustments, dither_floyd_steinberg, PALETTE,
     get_screen_types_for_image, _DEFAULT_SCREEN, convert_image_for_screen,
-    convert_entry, convert_entry_for_screen, ensure_entry_bin_files,
+    convert_entry_for_screen, ensure_entry_bin_files,
     _default_landscape_crop_img, _default_portrait_crop_img, _crop_with_outfill,
     screen_size_for_profile, get_screen_types_for_playlist,
     entry_artifacts_ready,

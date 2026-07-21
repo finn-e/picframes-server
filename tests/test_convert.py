@@ -7,7 +7,8 @@ from PIL import Image
 
 import db
 from image import (PALETTE, _crop_with_outfill, convert_entry,
-                   dither_floyd_steinberg, entry_artifact_prefix)
+                   dither_floyd_steinberg, entry_artifact_prefix,
+                   entry_bmp_path, entry_bin_path)
 
 
 def _make_entry(base='photo', size=(100, 70), color=(200, 60, 60), **edits):
@@ -31,15 +32,15 @@ def test_convert_entry_produces_pe_artifacts_with_right_dimensions():
     prefix = entry_artifact_prefix(eid)
     assert prefix == f'pe{eid}'
 
-    l_bmp = os.path.join(db.IMAGES_DIR, prefix + '_l.bmp')
-    p_bmp = os.path.join(db.IMAGES_DIR, prefix + '_p.bmp')
+    l_bmp = entry_bmp_path(eid, 800, 480, 'l')
+    p_bmp = entry_bmp_path(eid, 800, 480, 'p')
     assert Image.open(l_bmp).size == (800, 480)
     # Portrait artifact is device-rotated into landscape pixel order
     assert Image.open(p_bmp).size == (800, 480)
 
-    for sfx in ('_l_u.bin', '_l_f.bin', '_p_u.bin', '_p_f.bin'):
-        p = os.path.join(db.IMAGES_DIR, prefix + sfx)
-        assert os.path.exists(p), sfx
+    for ratio, flip in (('l53', 'u'), ('l53', 'f'), ('p35', 'u'), ('p35', 'f')):
+        p = entry_bin_path(eid, 800, 480, ratio, flip)
+        assert os.path.exists(p), f'{ratio}_{flip}.bin'
         assert os.path.getsize(p) == 800 * 480 // 2  # 4bpp packed
 
 
@@ -51,9 +52,6 @@ def test_convert_entry_rotate_90_changes_output():
         img = Image.new('RGB', (100, 70), (255, 0, 0))
         img.paste(Image.new('RGB', (50, 70), (0, 0, 255)), (50, 0))
         img.save(path, format='JPEG', quality=95)
-        # NOTE: load_image_order's first-run init branch scans ORIGINALS_DIR and
-        # may already contain *base*; appending unconditionally violates the
-        # image_order PK and trips the db.py connection-leak bug (see bugs.md).
         order = db.load_image_order(owner_id=1)
         if base not in order:
             order.append(base); db.save_image_order(order, owner_id=1)
@@ -63,8 +61,7 @@ def test_convert_entry_rotate_90_changes_output():
         if rotate:
             db.update_playlist_entry(eid, rotate=rotate)
         assert convert_entry(eid)
-        return Image.open(os.path.join(
-            db.IMAGES_DIR, entry_artifact_prefix(eid) + '_l.bmp'))
+        return Image.open(entry_bmp_path(eid, 800, 480, 'l'))
 
     plain   = two_tone('tt0', 0)
     rotated = two_tone('tt90', 90)
@@ -90,8 +87,7 @@ def test_convert_entry_out_of_bounds_crop_outfills():
     eid = _make_entry(base='oob', crop_l_x=-100, crop_l_y=-60,
                       crop_l_w=100, crop_l_h=60, bg_color='#00ff00')
     assert convert_entry(eid) is True
-    l_bmp = Image.open(os.path.join(db.IMAGES_DIR,
-                                    entry_artifact_prefix(eid) + '_l.bmp'))
+    l_bmp = Image.open(entry_bmp_path(eid, 800, 480, 'l'))
     assert l_bmp.size == (800, 480)
     # Crop rect is entirely out of bounds → whole output is bg color
     # (green is in the device palette, so it survives quantisation exactly)
@@ -105,9 +101,8 @@ def test_convert_entry_missing_entry_returns_false():
 def test_flip_bin_is_bitreversed_variant():
     eid = _make_entry(base='flip')
     convert_entry(eid)
-    prefix = entry_artifact_prefix(eid)
-    u = open(os.path.join(db.IMAGES_DIR, prefix + '_l_u.bin'), 'rb').read()
-    f = open(os.path.join(db.IMAGES_DIR, prefix + '_l_f.bin'), 'rb').read()
+    u = open(entry_bin_path(eid, 800, 480, 'l53', 'u'), 'rb').read()
+    f = open(entry_bin_path(eid, 800, 480, 'l53', 'f'), 'rb').read()
     assert len(u) == len(f)
     # flipping twice returns the original
     from image import _flip_bitstream
@@ -119,14 +114,13 @@ def test_convert_entry_13in3_produces_correct_dimensions():
     eid = _make_entry(base='photo13')
     from image import convert_entry_13in3, entry_artifact_prefix as eap
     assert convert_entry_13in3(eid) is True
-    prefix = eap(eid)
-    l_bmp = Image.open(os.path.join(db.IMAGES_DIR, prefix + '_l.bmp'))
-    p_bmp = Image.open(os.path.join(db.IMAGES_DIR, prefix + '_p.bmp'))
+    l_bmp = Image.open(entry_bmp_path(eid, 1600, 1200, 'l'))
+    p_bmp = Image.open(entry_bmp_path(eid, 1600, 1200, 'p'))
     assert l_bmp.size == (1200, 1600)
     assert p_bmp.size == (1200, 1600)
-    for sfx in ('_l_u.bin', '_l_f.bin', '_p_u.bin', '_p_f.bin'):
-        p = os.path.join(db.IMAGES_DIR, prefix + sfx)
-        assert os.path.exists(p), sfx
+    for ratio, flip in (('l43', 'u'), ('l43', 'f'), ('p34', 'u'), ('p34', 'f')):
+        p = entry_bin_path(eid, 1600, 1200, ratio, flip)
+        assert os.path.exists(p), f'{ratio}_{flip}.bin'
         assert os.path.getsize(p) == 960000  # 1200×1600×4bpp/8 packed 13in3
 
 
@@ -136,8 +130,7 @@ def test_convert_entry_for_screen_dispatches_correctly():
     eid = _make_entry(base='screen_dispatch')
     result = convert_entry_for_screen(eid, 1600, 1200)
     assert result is True
-    prefix = eap(eid)
-    l_bmp = Image.open(os.path.join(db.IMAGES_DIR, prefix + '_l.bmp'))
+    l_bmp = Image.open(entry_bmp_path(eid, 1600, 1200, 'l'))
     assert l_bmp.size == (1200, 1600)
 
 

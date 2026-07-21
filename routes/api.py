@@ -30,7 +30,8 @@ from db import (
 from image import (ensure_bin_files, ensure_bin_files_for_screen,
                    screen_size_for_profile, _artifact_infix,
                    ensure_entry_bin_files, ensure_entry_bin_files_for_screen,
-                   entry_artifact_prefix, convert_entry_for_screen,
+                   entry_artifact_prefix, entry_bin_path,
+                   convert_entry_for_screen, ratios_for_screen,
                    normalize_device_type, DEVICE_TYPE_ALIASES, _DEFAULT_SCREEN)
 
 logger = logging.getLogger(__name__)
@@ -700,12 +701,12 @@ def _daily_zip_inner():
     pid         = get_device_playlist_id(mac_lower)
     pl_settings = get_playlist_settings(pid)
 
-    orient_char    = 'l' if orientation == 'landscape' else 'p'
-    flip           = dev_cfg.get('flip_l', False) if orientation == 'landscape' else dev_cfg.get('flip_p', False)
-    scr_w, scr_h   = screen_size_for_profile(hw_profile)
-    infix          = _artifact_infix(scr_w, scr_h)
-    effective_flip = flip if not infix else False  # flip unsupported for non-default screens
-    zip_suffix     = f'_{orient_char}.bin'
+    orient_char  = 'l' if orientation == 'landscape' else 'p'
+    flip         = dev_cfg.get('flip_l', False) if orientation == 'landscape' else dev_cfg.get('flip_p', False)
+    scr_w, scr_h = screen_size_for_profile(hw_profile)
+    infix        = _artifact_infix(scr_w, scr_h)
+    flip_char    = 'f' if flip else 'u'
+    zip_suffix   = f'_{orient_char}.bin'
 
     serializable_cfg = {
         "timer":             pl_settings['sleep_interval'],
@@ -750,8 +751,9 @@ def _daily_zip_inner():
             for entry in candidate_entries:
                 # Ensure bins exist (synchronous safety net; background thread handles normal case)
                 ensure_entry_bin_files_for_screen(entry['id'], scr_w, scr_h)
-                bin_sfx  = f'_{orient_char}_{"f" if effective_flip else "u"}.bin'
-                bin_path = os.path.join(IMAGES_DIR, entry_artifact_prefix(entry['id']) + bin_sfx)
+                l_ratio, p_ratio = ratios_for_screen(scr_w, scr_h)
+                ratio    = l_ratio if orient_char == 'l' else p_ratio
+                bin_path = entry_bin_path(entry['id'], scr_w, scr_h, ratio, flip_char)
                 if os.path.exists(bin_path):
                     zf.write(bin_path, arcname=entry['title'] + zip_suffix)
     else:

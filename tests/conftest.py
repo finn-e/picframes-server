@@ -84,6 +84,8 @@ def fast_dither(monkeypatch):
     test_convert.py::test_real_dither_tiny on a tiny array."""
     import numpy as np
     import image as image_mod
+    import image.pipeline as pipeline_mod
+    import image.artifacts as artifacts_mod
     import routes.admin as admin_mod
 
     def _fake_dither(arr, palette):
@@ -92,6 +94,7 @@ def fast_dither(monkeypatch):
         return palette[idx].reshape(arr.shape).astype('uint8')
 
     monkeypatch.setattr(image_mod, 'dither_floyd_steinberg', _fake_dither)
+    monkeypatch.setattr(pipeline_mod, 'dither_floyd_steinberg', _fake_dither)
     monkeypatch.setattr(admin_mod, 'dither_floyd_steinberg', _fake_dither)
     yield
 
