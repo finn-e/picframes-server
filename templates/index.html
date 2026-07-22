@@ -2494,7 +2494,7 @@ async function _pollQueueStatus() {
   const list = document.getElementById('queue-task-list');
   if (!body) return;
   try {
-    const r = await fetch('/admin/queue-status');
+    const r = await fetch('/queue-status');
     if (!r.ok) { body.textContent = 'Queue: unavailable'; return; }
     const d = await r.json();
     if (d.error && d.active === 0 && d.pending === 0) {
