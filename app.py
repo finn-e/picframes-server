@@ -42,9 +42,9 @@ def create_app():
         )
         if (path.startswith('/api/')
                 or path.startswith('/static/')
-                or path.startswith('/ui/originals/')
-                or path.startswith('/ui/images/')
-                or path == '/ui/login'
+                or path.startswith('/originals/')
+                or path.startswith('/images/')
+                or path == '/login'
                 or path == '/'
                 or path in deprecated_open):
             return None
@@ -55,13 +55,9 @@ def create_app():
     from routes.api   import api_bp
     from routes.admin import admin_bp
 
-    app.register_blueprint(ui_bp,    url_prefix='/ui')
+    app.register_blueprint(ui_bp)
     app.register_blueprint(api_bp,   url_prefix='/api')
     app.register_blueprint(admin_bp, url_prefix='/admin')
-
-    @app.route('/')
-    def root_redirect():
-        return redirect('/ui/')
 
     def _deprecated(new_url, view_fn):
         """Wrap a view to add Deprecation headers and log a warning."""
