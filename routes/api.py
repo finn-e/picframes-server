@@ -641,16 +641,18 @@ def _refresh_inner():
                 else:
                     state.setdefault('device_indices', {})[mac]        = store_idx
 
-        # Update device_images with the current image file name
+        # Update device_images with the BMP filename for the status card preview
         pool = _get_pool()
         if pool and 0 <= current_idx < len(pool):
             orient_char = 'p' if orientation == 'portrait' else 'l'
+            hw_profile  = dev_cfg.get('hw_profile', '')
+            scr_w, scr_h = screen_size_for_profile(hw_profile)
             if pid is not None:
                 entry = pool[current_idx]
-                state.setdefault('device_images', {})[mac] = f"pe{entry['id']}_{orient_char}.bin"
+                state.setdefault('device_images', {})[mac] = f"pe{entry['id']}_{scr_w}x{scr_h}_{orient_char}.bmp"
             else:
                 base = pool[current_idx]
-                state.setdefault('device_images', {})[mac] = f"{base}_{orient_char}.bin"
+                state.setdefault('device_images', {})[mac] = f"{base}_{orient_char}.bmp"
         else:
             state.setdefault('device_images', {})[mac] = None
 

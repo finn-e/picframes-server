@@ -161,13 +161,13 @@ def test_device_images_tracking(logged_in):
     res = _refresh(logged_in)
     assert res['image_index'] == 0
     state = db.load_state()
-    assert state['device_images'].get(TEST_MAC) == f"pe{eids[0]}_l.bin"
+    assert state['device_images'].get(TEST_MAC) == f"pe{eids[0]}_800x480_l.bmp"
 
     # Advance
     res2 = _refresh(logged_in, skip=True)
     assert res2['image_index'] == 1
     state2 = db.load_state()
-    assert state2['device_images'].get(TEST_MAC) == f"pe{eids[1]}_l.bin"
+    assert state2['device_images'].get(TEST_MAC) == f"pe{eids[1]}_800x480_l.bmp"
 
 
 def test_playlist_sync_toggled_vs_non_sync(logged_in):

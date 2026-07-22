@@ -297,8 +297,8 @@
                 {% endif %}
                 {% if active_img %}
                 <div class="status-node-img-wrap">
-                    <img class="status-node-img {% if active_img.endswith('_p.bin') %}portrait-rot{% endif %}"
-                         src="{{ url_for('ui.serve_image', filename=active_img[:-4] + '.bmp') }}?t={{ now_ts }}">
+                    <img class="status-node-img {% if '_p.' in active_img %}portrait-rot{% endif %}"
+                         src="{{ url_for('ui.serve_image', filename=active_img) }}?t={{ now_ts }}">
                 </div>
                 {% endif %}
             </div>
@@ -914,7 +914,7 @@ function handleUpload(files) {
     for(let f of files) fd.append('files', f);
     document.getElementById('upload-progress').style.display = 'block';
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/upload');
+    xhr.open('POST', '/admin/upload');
     xhr.upload.addEventListener('progress', e => {
         if(e.lengthComputable) document.getElementById('progress-bar').style.width = Math.round(e.loaded/e.total*100) + '%';
     });
