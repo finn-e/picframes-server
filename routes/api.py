@@ -100,7 +100,7 @@ def _auto_register(mac, devices, cfg, source, owner_id):
 # Registration
 # ---------------------------------------------------------------------------
 
-@api_bp.route('/api/register', methods=['POST'])
+@api_bp.route('/register', methods=['POST'])
 def api_register():
     data     = request.get_json() or {}
     mac      = data.get('mac', '').strip().lower()
@@ -237,7 +237,7 @@ def api_register():
 # Orientation change (device-initiated)
 # ---------------------------------------------------------------------------
 
-@api_bp.route('/api/change-orientation', methods=['POST'])
+@api_bp.route('/change-orientation', methods=['POST'])
 def api_change_orientation():
     data = request.get_json() or {}
     orientation = data.get('orientation', '').strip()
@@ -261,7 +261,7 @@ def api_change_orientation():
 # Queue push
 # ---------------------------------------------------------------------------
 
-@api_bp.route('/api/queue', methods=['POST'])
+@api_bp.route('/queue', methods=['POST'])
 def queue_image_api():
     data      = request.get_json() or {}
     source    = data.get('source')
@@ -312,7 +312,7 @@ def queue_image_api():
 # Config (legacy device endpoint)
 # ---------------------------------------------------------------------------
 
-@api_bp.route('/api/config', methods=['GET'])
+@api_bp.route('/config', methods=['GET'])
 def api_config():
     cfg = load_config(); now = datetime.now()
     cfg['current_date'] = now.strftime('%Y-%m-%d')
@@ -320,7 +320,7 @@ def api_config():
     return jsonify(cfg)
 
 
-@api_bp.route('/api/images', methods=['GET'])
+@api_bp.route('/images', methods=['GET'])
 def api_images():
     cfg        = load_config()
     caller_ip  = _caller_ip()
@@ -403,7 +403,6 @@ def _get_update_url(hw_profile, current_version):
     return None
 
 
-@api_bp.route('/api/update', methods=['GET'])
 @api_bp.route('/update', methods=['GET'])
 def api_update():
     hw      = request.args.get('hw', '').strip()
@@ -448,7 +447,7 @@ def api_update():
 # ---------------------------------------------------------------------------
 
 def _daily_config_inner():
-    dev_cfg, cfg, owner_id, err = _require_device('/daily-config')
+    dev_cfg, cfg, owner_id, err = _require_device('/frame-config')
     if err:
         return err
     mac = dev_cfg['mac'].lower()
@@ -491,8 +490,7 @@ def _daily_config_inner():
     })
 
 
-@api_bp.route('/api/daily-config', methods=['GET'])
-@api_bp.route('/daily-config',     methods=['GET'])
+@api_bp.route('/frame-config', methods=['GET'])
 def device_daily_config():
     return _daily_config_inner()
 
@@ -665,13 +663,12 @@ def _refresh_inner():
     })
 
 
-@api_bp.route('/api/refresh', methods=['POST'])
-@api_bp.route('/refresh',     methods=['POST'])
+@api_bp.route('/refresh', methods=['POST'])
 def device_refresh():
     return _refresh_inner()
 
 
-@api_bp.route('/api/battery-history/<mac>', methods=['GET'])
+@api_bp.route('/battery-history/<mac>', methods=['GET'])
 def battery_history(mac):
     days = request.args.get('days', 7)
     try:
@@ -688,7 +685,7 @@ def battery_history(mac):
 # ---------------------------------------------------------------------------
 
 def _daily_zip_inner():
-    dev_cfg, cfg, owner_id, err = _require_device('/daily-zip')
+    dev_cfg, cfg, owner_id, err = _require_device('/image-zip')
     if err:
         return err
     mac = dev_cfg['mac'].lower()
@@ -801,7 +798,6 @@ def _zip_response(zip_bytes, zip_version, mac):
     )
 
 
-@api_bp.route('/api/daily-zip', methods=['GET'])
-@api_bp.route('/daily-zip',     methods=['GET'])
+@api_bp.route('/image-zip', methods=['GET'])
 def device_daily_zip():
     return _daily_zip_inner()

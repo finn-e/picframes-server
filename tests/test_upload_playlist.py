@@ -13,7 +13,7 @@ def _jpeg_bytes(name='photo', size=(50, 40)):
 
 
 def _create_playlist(client, name='TestPL'):
-    r = client.post('/playlists/create', json={'name': name})
+    r = client.post('/admin/playlists/create', json={'name': name})
     assert r.status_code == 200
     return r.get_json()['id']
 
@@ -21,7 +21,7 @@ def _create_playlist(client, name='TestPL'):
 def test_upload_without_playlist_id_still_redirects(logged_in):
     """Backward compat: no playlist_id → 302 redirect to /"""
     data = {'files': (io.BytesIO(_jpeg_bytes()), 'img.jpg')}
-    r = logged_in.post('/upload', data=data, content_type='multipart/form-data')
+    r = logged_in.post('/admin/upload', data=data, content_type='multipart/form-data')
     assert r.status_code == 302
     assert '/' in r.headers.get('Location', '/')
 
@@ -32,7 +32,7 @@ def test_upload_with_playlist_id_returns_json_and_creates_entry(logged_in):
         'files': (io.BytesIO(_jpeg_bytes()), 'newphoto.jpg'),
         'playlist_id': str(pid),
     }
-    r = logged_in.post('/upload', data=data, content_type='multipart/form-data')
+    r = logged_in.post('/admin/upload', data=data, content_type='multipart/form-data')
     assert r.status_code == 200
     j = r.get_json()
     assert j['ok'] is True
@@ -51,7 +51,7 @@ def test_upload_with_playlist_id_adds_to_pool_order(logged_in):
         'files': (io.BytesIO(_jpeg_bytes()), 'poolcheck.jpg'),
         'playlist_id': str(pid),
     }
-    logged_in.post('/upload', data=data, content_type='multipart/form-data')
+    logged_in.post('/admin/upload', data=data, content_type='multipart/form-data')
     order = db.load_image_order(owner_id=1)
     assert 'poolcheck' in order
 
@@ -62,7 +62,7 @@ def test_upload_with_playlist_id_disables_in_pool(logged_in):
         'files': (io.BytesIO(_jpeg_bytes()), 'disabletest.jpg'),
         'playlist_id': str(pid),
     }
-    logged_in.post('/upload', data=data, content_type='multipart/form-data')
+    logged_in.post('/admin/upload', data=data, content_type='multipart/form-data')
     enabled = db.load_enabled()
     f = db.flags(enabled, 'disabletest')
     assert f['l'] is False
@@ -74,14 +74,14 @@ def test_upload_playlist_cap_returns_error(logged_in):
     # Fill the playlist with 10 existing images
     for i in range(10):
         make_original(f'existing{i}')
-        r = logged_in.post(f'/playlists/{pid}/add_image', json={'base': f'existing{i}'})
+        r = logged_in.post(f'/admin/playlists/{pid}/add_image', json={'base': f'existing{i}'})
         assert r.status_code == 200
     # Now try to upload one more via playlist upload
     data = {
         'files': (io.BytesIO(_jpeg_bytes()), 'overflow.jpg'),
         'playlist_id': str(pid),
     }
-    r = logged_in.post('/upload', data=data, content_type='multipart/form-data')
+    r = logged_in.post('/admin/upload', data=data, content_type='multipart/form-data')
     assert r.status_code == 400
     j = r.get_json()
     assert j['ok'] is False
@@ -94,6 +94,6 @@ def test_upload_no_valid_files_with_playlist_id_returns_error(logged_in):
         'files': (io.BytesIO(b'notanimage'), 'file.exe'),
         'playlist_id': str(pid),
     }
-    r = logged_in.post('/upload', data=data, content_type='multipart/form-data')
+    r = logged_in.post('/admin/upload', data=data, content_type='multipart/form-data')
     assert r.status_code == 400
     assert r.get_json()['ok'] is False

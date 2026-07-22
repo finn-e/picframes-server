@@ -8,7 +8,7 @@ def test_repair_window_allows_token_reissue(client, logged_in):
     """Known device with bad token gets a new token when repair window is open."""
     register_device(client)
     # Open repair window via dashboard endpoint.
-    r = logged_in.post('/device_repair', json={'mac': TEST_MAC})
+    r = logged_in.post('/admin/device_repair', json={'mac': TEST_MAC})
     assert r.status_code == 200
     d = r.get_json()
     assert d['ok'] is True
@@ -23,7 +23,7 @@ def test_repair_window_allows_token_reissue(client, logged_in):
 def test_repair_window_is_one_shot(client, logged_in):
     """Second attempt with bogus password after window already used gets 403."""
     register_device(client)
-    logged_in.post('/device_repair', json={'mac': TEST_MAC})
+    logged_in.post('/admin/device_repair', json={'mac': TEST_MAC})
 
     # First attempt consumes the window.
     r1 = client.post('/api/register', json={'mac': TEST_MAC, 'password': 'bogus'})
@@ -45,7 +45,7 @@ def test_device_repair_endpoint_sets_column(client, logged_in):
     """POST /device_repair persists repair_until into the devices table."""
     register_device(client)
     before = int(time.time())
-    logged_in.post('/device_repair', json={'mac': TEST_MAC})
+    logged_in.post('/admin/device_repair', json={'mac': TEST_MAC})
     conn = db.get_db()
     row = conn.execute("SELECT repair_until FROM devices WHERE mac=?",
                        (TEST_MAC,)).fetchone()

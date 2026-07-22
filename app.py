@@ -6,7 +6,7 @@ import logging
 import os
 import socket
 
-from flask import Flask, redirect, request, session, url_for
+from flask import Flask, make_response, redirect, request, session, url_for
 from zeroconf import IPVersion, Zeroconf, ServiceInfo
 
 from db import init_db
@@ -32,10 +32,20 @@ def create_app():
     @app.before_request
     def auth_gate():
         path = request.path
-        open_paths = {'/login', '/device_orientation', '/daily-config', '/daily-zip', '/refresh', '/update'}
+        # Deprecated bare-root paths pass through (device firmware still uses them)
+        deprecated_open = (
+            '/daily-config', '/api/daily-config',
+            '/daily-zip',    '/api/daily-zip',
+            '/refresh',      '/api/refresh',
+            '/update',       '/api/update',
+        )
         if (path.startswith('/api/')
                 or path.startswith('/static/')
-                or path in open_paths):
+                or path.startswith('/ui/originals/')
+                or path.startswith('/ui/images/')
+                or path == '/ui/login'
+                or path == '/'
+                or path in deprecated_open):
             return None
         if not session.get('authenticated'):
             return redirect(url_for('ui.login'))
@@ -44,9 +54,38 @@ def create_app():
     from routes.api   import api_bp
     from routes.admin import admin_bp
 
-    app.register_blueprint(ui_bp)
-    app.register_blueprint(api_bp)
-    app.register_blueprint(admin_bp)
+    app.register_blueprint(ui_bp,    url_prefix='/ui')
+    app.register_blueprint(api_bp,   url_prefix='/api')
+    app.register_blueprint(admin_bp, url_prefix='/admin')
+
+    @app.route('/')
+    def root_redirect():
+        return redirect('/ui/')
+
+    def _deprecated(new_url, view_fn):
+        """Wrap a view to add Deprecation headers and log a warning."""
+        import functools
+        @functools.wraps(view_fn)
+        def wrapper(*args, **kwargs):
+            logger.warning(f"Deprecated route called: {request.path} → {new_url}")
+            resp = make_response(view_fn(*args, **kwargs))
+            resp.headers['Deprecation'] = 'true'
+            resp.headers['Link'] = f'<{new_url}>; rel="successor-version"'
+            return resp
+        wrapper.__name__ = f'dep_{view_fn.__name__}_{new_url.replace("/", "_")}'
+        return wrapper
+
+    from routes.api import device_daily_config, device_daily_zip, device_refresh, api_update
+
+    # TODO: remove after next firmware OTA update lands on all frames
+    app.add_url_rule('/daily-config',     'dep_daily_config',     _deprecated('/api/frame-config', device_daily_config))
+    app.add_url_rule('/api/daily-config', 'dep_api_daily_config', _deprecated('/api/frame-config', device_daily_config))
+    app.add_url_rule('/daily-zip',        'dep_daily_zip',        _deprecated('/api/image-zip',    device_daily_zip))
+    app.add_url_rule('/api/daily-zip',    'dep_api_daily_zip',    _deprecated('/api/image-zip',    device_daily_zip))
+    app.add_url_rule('/refresh',          'dep_refresh',          _deprecated('/api/refresh',      device_refresh),  methods=['POST'])
+    app.add_url_rule('/api/refresh',      'dep_api_refresh',      _deprecated('/api/refresh',      device_refresh),  methods=['POST'])
+    app.add_url_rule('/update',           'dep_update',           _deprecated('/api/update',       api_update))
+    app.add_url_rule('/api/update',       'dep_api_update',       _deprecated('/api/update',       api_update))
 
     return app
 

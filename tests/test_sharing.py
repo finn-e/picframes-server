@@ -19,13 +19,13 @@ def test_add_friend_endpoints(logged_in):
     code2 = user2['friend_code']
 
     # Logged-in user (admin) adds user 2 as friend via API
-    r = logged_in.post('/friends/add', json={'code': code2})
+    r = logged_in.post('/admin/friends/add', json={'code': code2})
     assert r.status_code == 200
     assert r.get_json()['ok'] is True
     assert r.get_json()['username'] == 'wife'
 
     # Check friends list for admin
-    r_list = logged_in.get('/friends')
+    r_list = logged_in.get('/admin/friends')
     assert r_list.status_code == 200
     friends = r_list.get_json()['friends']
     assert len(friends) == 1
@@ -33,7 +33,7 @@ def test_add_friend_endpoints(logged_in):
 
 def test_cannot_add_self(logged_in):
     user = get_user_by_username('admin')
-    r = logged_in.post('/friends/add', json={'code': user['friend_code']})
+    r = logged_in.post('/admin/friends/add', json={'code': user['friend_code']})
     assert r.status_code == 400
     assert 'cannot add yourself' in r.get_json()['error']
 
@@ -54,7 +54,7 @@ def test_playlist_sharing_and_access(logged_in, client):
     assert is_playlist_accessible(pid, uid2) is False
 
     # admin shares playlist with wife2
-    r_share = logged_in.post(f'/playlists/{pid}/share', json={'friend_id': uid2})
+    r_share = logged_in.post(f'/admin/playlists/{pid}/share', json={'friend_id': uid2})
     assert r_share.status_code == 200
     assert r_share.get_json()['ok'] is True
 
@@ -62,7 +62,7 @@ def test_playlist_sharing_and_access(logged_in, client):
     assert is_playlist_accessible(pid, uid2) is True
 
     # admin unshares playlist
-    r_unshare = logged_in.post(f'/playlists/{pid}/unshare', json={'friend_id': uid2})
+    r_unshare = logged_in.post(f'/admin/playlists/{pid}/unshare', json={'friend_id': uid2})
     assert r_unshare.status_code == 200
     assert r_unshare.get_json()['ok'] is True
 

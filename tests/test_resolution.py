@@ -138,7 +138,7 @@ MAC2 = 'aa:bb:cc:dd:ee:f2'
 def test_playlist_locked_on_first_assignment(logged_in):
     """Assigning the first device locks the playlist to that device's resolution."""
     client = logged_in
-    r = client.post('/playlists/create', json={'name': 'TestPL'})
+    r = client.post('/admin/playlists/create', json={'name': 'TestPL'})
     pid = r.get_json()['id']
 
     # Register a 13in3 device
@@ -146,7 +146,7 @@ def test_playlist_locked_on_first_assignment(logged_in):
         'mac': TEST_MAC, 'username': 'admin', 'password': 'admin',
         'hw_profile': 'Seeed-EE02-Spectra6-13in3',
     })
-    r = client.post('/device_playlist', json={'mac': TEST_MAC, 'playlist_id': pid})
+    r = client.post('/admin/device_playlist', json={'mac': TEST_MAC, 'playlist_id': pid})
     assert r.status_code == 200
     assert r.get_json()['ok'] is True
 
@@ -157,7 +157,7 @@ def test_playlist_locked_on_first_assignment(logged_in):
 def test_playlist_lock_mismatch_rejected(logged_in):
     """Assigning a device whose resolution differs from the locked playlist → 409."""
     client = logged_in
-    r = client.post('/playlists/create', json={'name': 'TestPL'})
+    r = client.post('/admin/playlists/create', json={'name': 'TestPL'})
     pid = r.get_json()['id']
 
     # First device: 13in3
@@ -165,7 +165,7 @@ def test_playlist_lock_mismatch_rejected(logged_in):
         'mac': TEST_MAC, 'username': 'admin', 'password': 'admin',
         'hw_profile': 'Seeed-EE02-Spectra6-13in3',
     })
-    r = client.post('/device_playlist', json={'mac': TEST_MAC, 'playlist_id': pid})
+    r = client.post('/admin/device_playlist', json={'mac': TEST_MAC, 'playlist_id': pid})
     assert r.status_code == 200
 
     # Second device: 7in3 (800x480 — different from 1600x1200)
@@ -173,7 +173,7 @@ def test_playlist_lock_mismatch_rejected(logged_in):
         'mac': MAC2, 'username': 'admin', 'password': 'admin',
         'hw_profile': 'Seeed-EE04-Spectra6-7in3',
     })
-    r = client.post('/device_playlist', json={'mac': MAC2, 'playlist_id': pid})
+    r = client.post('/admin/device_playlist', json={'mac': MAC2, 'playlist_id': pid})
     assert r.status_code == 409
     assert 'mismatch' in r.get_json().get('error', '').lower()
 
@@ -181,7 +181,7 @@ def test_playlist_lock_mismatch_rejected(logged_in):
 def test_playlist_same_resolution_second_device_ok(logged_in):
     """Two 7in3 devices (same resolution) can both be in the same playlist."""
     client = logged_in
-    r = client.post('/playlists/create', json={'name': 'TestPL'})
+    r = client.post('/admin/playlists/create', json={'name': 'TestPL'})
     pid = r.get_json()['id']
 
     for mac in (TEST_MAC, MAC2):
@@ -190,28 +190,28 @@ def test_playlist_same_resolution_second_device_ok(logged_in):
             'hw_profile': 'Seeed-EE04-Spectra6-7in3',
         })
 
-    r = client.post('/device_playlist', json={'mac': TEST_MAC, 'playlist_id': pid})
+    r = client.post('/admin/device_playlist', json={'mac': TEST_MAC, 'playlist_id': pid})
     assert r.status_code == 200
-    r = client.post('/device_playlist', json={'mac': MAC2, 'playlist_id': pid})
+    r = client.post('/admin/device_playlist', json={'mac': MAC2, 'playlist_id': pid})
     assert r.status_code == 200
 
 
 def test_playlist_unlocked_when_last_device_removed(logged_in):
     """Removing the only device from a playlist clears its resolution lock."""
     client = logged_in
-    r = client.post('/playlists/create', json={'name': 'TestPL'})
+    r = client.post('/admin/playlists/create', json={'name': 'TestPL'})
     pid = r.get_json()['id']
 
     client.post('/api/register', json={
         'mac': TEST_MAC, 'username': 'admin', 'password': 'admin',
         'hw_profile': 'Seeed-EE02-Spectra6-13in3',
     })
-    r = client.post('/device_playlist', json={'mac': TEST_MAC, 'playlist_id': pid})
+    r = client.post('/admin/device_playlist', json={'mac': TEST_MAC, 'playlist_id': pid})
     assert r.status_code == 200
     assert db.get_playlist_resolution(pid) == '1600x1200'
 
     # Remove the device
-    r = client.post('/device_playlist', json={'mac': TEST_MAC, 'playlist_id': None})
+    r = client.post('/admin/device_playlist', json={'mac': TEST_MAC, 'playlist_id': None})
     assert r.status_code == 200
     assert db.get_playlist_resolution(pid) is None
 
@@ -219,7 +219,7 @@ def test_playlist_unlocked_when_last_device_removed(logged_in):
 def test_playlist_stays_locked_with_remaining_devices(logged_in):
     """Removing one of two devices does NOT unlock the playlist."""
     client = logged_in
-    r = client.post('/playlists/create', json={'name': 'TestPL'})
+    r = client.post('/admin/playlists/create', json={'name': 'TestPL'})
     pid = r.get_json()['id']
 
     for mac in (TEST_MAC, MAC2):
@@ -227,10 +227,10 @@ def test_playlist_stays_locked_with_remaining_devices(logged_in):
             'mac': mac, 'username': 'admin', 'password': 'admin',
             'hw_profile': 'Seeed-EE04-Spectra6-7in3',
         })
-        client.post('/device_playlist', json={'mac': mac, 'playlist_id': pid})
+        client.post('/admin/device_playlist', json={'mac': mac, 'playlist_id': pid})
 
     # Remove first device only
-    client.post('/device_playlist', json={'mac': TEST_MAC, 'playlist_id': None})
+    client.post('/admin/device_playlist', json={'mac': TEST_MAC, 'playlist_id': None})
     # Lock should still be set because MAC2 remains
     assert db.get_playlist_resolution(pid) is not None
 
@@ -238,7 +238,7 @@ def test_playlist_stays_locked_with_remaining_devices(logged_in):
 def test_old_firmware_no_type_uses_default_resolution(logged_in):
     """Old firmware (no hw_profile, no resolution) → treated as 800x480; can join an 800x480 playlist."""
     client = logged_in
-    r = client.post('/playlists/create', json={'name': 'TestPL'})
+    r = client.post('/admin/playlists/create', json={'name': 'TestPL'})
     pid = r.get_json()['id']
 
     # Old-style registration (no type)
@@ -246,7 +246,7 @@ def test_old_firmware_no_type_uses_default_resolution(logged_in):
         'mac': TEST_MAC, 'username': 'admin', 'password': 'admin',
     })
 
-    r = client.post('/device_playlist', json={'mac': TEST_MAC, 'playlist_id': pid})
+    r = client.post('/admin/device_playlist', json={'mac': TEST_MAC, 'playlist_id': pid})
     assert r.status_code == 200
     # Playlist should be locked to 800x480
     assert db.get_playlist_resolution(pid) == '800x480'

@@ -46,7 +46,7 @@ def test_register_issues_hmac_token_and_creates_device(client):
 
 def test_registered_device_with_valid_token_gets_200(client):
     register_device(client)
-    r = client.get('/api/daily-config', headers=device_headers())
+    r = client.get('/api/frame-config', headers=device_headers())
     assert r.status_code == 200
     body = r.get_json()
     assert 'daily_zip_version' in body and 'images' in body
@@ -62,7 +62,7 @@ def test_reregister_with_token_as_password_keeps_owner(client):
 
 def test_daily_zip_requires_token(client):
     register_device(client)
-    r = client.get('/api/daily-zip', headers={'X-Device-Mac': TEST_MAC})
+    r = client.get('/api/image-zip', headers={'X-Device-Mac': TEST_MAC})
     assert r.status_code == 403
 
 

@@ -7,13 +7,13 @@ from tests.conftest import make_original
 
 
 def _create_playlist(client, name='TestPL'):
-    r = client.post('/playlists/create', json={'name': name})
+    r = client.post('/admin/playlists/create', json={'name': name})
     assert r.status_code == 200
     return r.get_json()['id']
 
 
 def _add_entry(client, pid, base='photo'):
-    r = client.post(f'/playlists/{pid}/add_image', json={'base': base})
+    r = client.post(f'/admin/playlists/{pid}/add_image', json={'base': base})
     assert r.status_code == 200, r.get_data(as_text=True)
     return r.get_json()['entry_id']
 
@@ -42,7 +42,7 @@ def test_rename_entry_sanitizes(logged_in):
     make_original('photo')
     pid = _create_playlist(logged_in)
     eid = _add_entry(logged_in, pid)
-    r = logged_in.post(f'/playlists/{pid}/rename_entry/{eid}',
+    r = logged_in.post(f'/admin/playlists/{pid}/rename_entry/{eid}',
                        json={'title': 'Beach Day!'})
     assert r.status_code == 200
     assert r.get_json()['title'] == 'Beach_Day'
@@ -55,9 +55,9 @@ def test_rename_entry_uniqueness_suffix(logged_in):
     pid = _create_playlist(logged_in)
     e1 = _add_entry(logged_in, pid, 'photo')
     e2 = _add_entry(logged_in, pid, 'other')
-    r1 = logged_in.post(f'/playlists/{pid}/rename_entry/{e1}', json={'title': 'Beach Day'})
+    r1 = logged_in.post(f'/admin/playlists/{pid}/rename_entry/{e1}', json={'title': 'Beach Day'})
     assert r1.get_json()['title'] == 'Beach_Day'
-    r2 = logged_in.post(f'/playlists/{pid}/rename_entry/{e2}', json={'title': 'Beach Day'})
+    r2 = logged_in.post(f'/admin/playlists/{pid}/rename_entry/{e2}', json={'title': 'Beach Day'})
     assert r2.get_json()['title'] == 'Beach_Day_2'
 
 
@@ -65,7 +65,7 @@ def test_rename_entry_wrong_playlist_404(logged_in):
     make_original('photo')
     pid = _create_playlist(logged_in)
     eid = _add_entry(logged_in, pid)
-    r = logged_in.post(f'/playlists/{pid + 99}/rename_entry/{eid}', json={'title': 'x'})
+    r = logged_in.post(f'/admin/playlists/{pid + 99}/rename_entry/{eid}', json={'title': 'x'})
     assert r.status_code == 404
 
 
@@ -81,10 +81,10 @@ def test_entry_edit_save_get_roundtrip_including_rotate(logged_in):
         'r_gain': 1.1, 'g_gain': 0.95, 'b_gain': 1.0,
         'bg_color': '#00ff00', 'rotate': 90,
     }
-    r = logged_in.post(f'/entry-edit/{eid}', json=params)
+    r = logged_in.post(f'/admin/entry-edit/{eid}', json=params)
     assert r.status_code == 200 and r.get_json()['ok']
 
-    got = logged_in.get(f'/entry-edit/{eid}').get_json()
+    got = logged_in.get(f'/admin/entry-edit/{eid}').get_json()
     assert got['rotate'] == 90
     assert got['bg_color'] == '#00ff00'
     assert got['crop_l'] == {'x': -10, 'y': 5, 'w': 100, 'h': 60}
@@ -98,21 +98,21 @@ def test_entry_edit_get_defaults_for_neutral_entry(logged_in):
     make_original('photo')
     pid = _create_playlist(logged_in)
     eid = _add_entry(logged_in, pid)
-    got = logged_in.get(f'/entry-edit/{eid}').get_json()
+    got = logged_in.get(f'/admin/entry-edit/{eid}').get_json()
     assert got['crop_l'] is None and got['crop_p'] is None
     assert got['rotate'] == 0 and got['saturation'] == 1
 
 
 def test_entry_edit_unknown_entry_404(logged_in):
-    assert logged_in.get('/entry-edit/9999').status_code == 404
-    assert logged_in.post('/entry-edit/9999', json={}).status_code == 404
+    assert logged_in.get('/admin/entry-edit/9999').status_code == 404
+    assert logged_in.post('/admin/entry-edit/9999', json={}).status_code == 404
 
 
 def test_entry_preview_returns_png(logged_in):
     make_original('photo')
     pid = _create_playlist(logged_in)
     eid = _add_entry(logged_in, pid)
-    r = logged_in.post(f'/entry-preview/{eid}', json={'rotate': 90})
+    r = logged_in.post(f'/admin/entry-preview/{eid}', json={'rotate': 90})
     assert r.status_code == 200
     assert r.mimetype == 'image/png'
     assert r.data[:8] == b'\x89PNG\r\n\x1a\n'
@@ -122,7 +122,7 @@ def test_entry_toggle_orient(logged_in):
     make_original('photo')
     pid = _create_playlist(logged_in)
     eid = _add_entry(logged_in, pid)
-    r = logged_in.post(f'/entry-toggle-orient/{eid}',
+    r = logged_in.post(f'/admin/entry-toggle-orient/{eid}',
                        json={'orient': 'p', 'enabled': False})
     assert r.status_code == 200
     assert db.get_playlist_entry(eid)['enabled_p'] == 0
@@ -133,7 +133,7 @@ def test_remove_entry_deletes_row_and_artifacts(logged_in):
     pid = _create_playlist(logged_in)
     eid = _add_entry(logged_in, pid)
     assert os.path.exists(entry_bmp_path(eid, 800, 480, 'l'))
-    r = logged_in.post(f'/playlists/{pid}/remove_entry/{eid}')
+    r = logged_in.post(f'/admin/playlists/{pid}/remove_entry/{eid}')
     assert r.status_code == 200
     assert db.get_playlist_entry(eid) is None
     assert not os.path.exists(entry_bmp_path(eid, 800, 480, 'l'))
@@ -145,5 +145,5 @@ def test_playlist_cap_of_10_entries(logged_in):
         make_original(f'img{i}')
         _add_entry(logged_in, pid, f'img{i}')
     make_original('overflow')
-    r = logged_in.post(f'/playlists/{pid}/add_image', json={'base': 'overflow'})
+    r = logged_in.post(f'/admin/playlists/{pid}/add_image', json={'base': 'overflow'})
     assert r.status_code == 400

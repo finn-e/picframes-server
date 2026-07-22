@@ -976,7 +976,7 @@ function startRename(span, base) {
         if(done) return; done = true;
         const nb = input.value.trim();
         if(!nb || nb.replaceAll(' ', '_') === base) { cancel(); return; }
-        fetch('/rename', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({old_base:base, new_base:nb})})
+        fetch('/admin/rename', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({old_base:base, new_base:nb})})
             .then(r=>r.json()).then(d => { if(d.ok){toast('Renamed');window.location.reload();}else{toast('Error: '+d.error);cancel();} });
     }
     function cancel() { if(done) return; done = true; input.remove(); span.style.display = ''; }
@@ -996,7 +996,7 @@ function startDeviceRename(span, mac) {
         if(done) return; done = true;
         const name = input.value.trim();
         if(!name) { cancel(); return; }
-        fetch('/device_rename', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mac, name})})
+        fetch('/admin/device_rename', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mac, name})})
             .then(r=>r.json()).then(d => { if(d.ok) window.location.reload(); else cancel(); });
     }
     function cancel() { if(done) return; done = true; input.remove(); span.style.display = ''; }
@@ -1016,7 +1016,7 @@ function renamePlaylist(span, pid) {
         if(done) return; done = true;
         const name = input.value.trim();
         if(!name) { cancel(); return; }
-        fetch(`/playlists/${pid}/rename`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name})})
+        fetch(`/admin/playlists/${pid}/rename`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name})})
             .then(r=>r.json()).then(d => { if(d.ok) window.location.reload(); else cancel(); });
     }
     function cancel() { if(done) return; done = true; input.remove(); span.style.display = ''; }
@@ -1026,7 +1026,7 @@ function renamePlaylist(span, pid) {
 
 // ---- L/P toggles (bidirectional sync) ----
 function toggleOrient(base, orient, enabled) {
-    fetch('/toggle_orient', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({base, orient, enabled})})
+    fetch('/admin/toggle_orient', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({base, orient, enabled})})
         .then(r=>r.json()).then(d => {
             if(!d.ok) return;
             // Update ALL cards for this base (row buttons + drawer toggles)
@@ -1061,7 +1061,7 @@ function toggleOrient(base, orient, enabled) {
 // ---- Entry operations (playlist entries) ----
 
 function toggleEntryOrient(entryId, orient, enabled) {
-    fetch('/entry-toggle-orient/' + entryId, {
+    fetch('/admin/entry-toggle-orient/' + entryId, {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({orient, enabled})
     }).then(r => r.json()).then(d => {
@@ -1099,7 +1099,7 @@ function queueEntry(entryId, pid, btn) {
 
 function removeEntry(pid, entryId) {
     if (!confirm('Remove from playlist?')) return;
-    fetch(`/playlists/${pid}/remove_entry/${entryId}`, {
+    fetch(`/admin/playlists/${pid}/remove_entry/${entryId}`, {
         method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
     }).then(r => r.json()).then(d => { if (d.ok) window.location.reload(); });
 }
@@ -1107,7 +1107,7 @@ function removeEntry(pid, entryId) {
 function reconvertEntry(entryId, btn) {
     if (btn) { btn.textContent = '↻ …'; btn.disabled = true; }
     _setBadge(entryId, 'reconverting');
-    fetch('/entry-reconvert/' + entryId, {
+    fetch('/admin/entry-reconvert/' + entryId, {
         method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
     }).then(r => r.json()).then(d => {
         toast(d.ok ? 'Reconverting in background' : 'Reconvert failed');
@@ -1129,7 +1129,7 @@ function startEntryRename(span, entryId, pid) {
         if (done) return; done = true;
         const title = input.value.trim();
         if (!title) { cancel(); return; }
-        fetch(`/playlists/${pid}/rename_entry/${entryId}`, {
+        fetch(`/admin/playlists/${pid}/rename_entry/${entryId}`, {
             method: 'POST', headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({title})
         }).then(r => r.json()).then(d => {
@@ -1158,23 +1158,23 @@ function queueImage(base, btn) {
 
 // ---- Device controls ----
 function setDeviceOrient(mac, orientation) {
-    fetch('/device_orientation', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mac, orientation})})
+    fetch('/admin/device_orientation', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mac, orientation})})
         .then(r=>r.json()).then(d => { if(d.ok) { toast('Orientation → '+orientation); setTimeout(()=>window.location.reload(),500); } });
 }
 function setDevicePlaylist(mac, pid) {
-    fetch('/device_playlist', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mac, playlist_id: pid || null})})
+    fetch('/admin/device_playlist', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mac, playlist_id: pid || null})})
         .then(r=>r.json()).then(d => { if(d.ok) toast('Playlist updated'); else toast('Error: ' + (d.error || 'unknown')); });
 }
 function setDeviceFlip(mac, orient, flip) {
-    fetch('/device_flip', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mac, orient, flip})})
+    fetch('/admin/device_flip', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mac, orient, flip})})
         .then(r=>r.json()).then(d => { if(!d.ok) toast('Error'); });
 }
 function setDeviceDebug(mac, debug) {
-    fetch('/device_debug', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mac, debug})})
+    fetch('/admin/device_debug', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mac, debug})})
         .then(r=>r.json()).then(d => { if(!d.ok) toast('Error'); });
 }
 function repairDevice(mac) {
-    fetch('/device_repair', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mac})})
+    fetch('/admin/device_repair', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mac})})
         .then(r=>r.json()).then(d => {
             if(d.ok) toast('Pairing window open (10 min) — reboot the frame');
             else toast('Error: ' + (d.error || 'unknown'));
@@ -1189,28 +1189,28 @@ function removeDevice(btn, mac) {
 function createPlaylist() {
     const name = prompt('Playlist name:', 'New Playlist');
     if(!name) return;
-    fetch('/playlists/create', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name})})
+    fetch('/admin/playlists/create', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name})})
         .then(r=>r.json()).then(d => { if(d.ok) window.location.reload(); });
 }
 function deletePlaylist(pid) {
     if(!confirm('Delete this playlist? Devices will be unassigned.')) return;
-    fetch(`/playlists/${pid}/delete`, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
+    fetch(`/admin/playlists/${pid}/delete`, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
         .then(r=>r.json()).then(d => { if(d.ok) window.location.reload(); });
 }
 function updatePlaylistSetting(pid, key, value) {
     const body = {};
     if(key === 'sleep_interval') body[key] = parseInt(value);
     else body[key] = (value === true || value === 'true' || value === 1);
-    fetch(`/playlists/${pid}/settings`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
+    fetch(`/admin/playlists/${pid}/settings`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
         .then(r=>r.json()).then(d => { if(d.ok) toast('Playlist updated'); });
 }
 function setDefaultPlaylist(pid) {
-    fetch('/settings/default_playlist', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({playlist_id: pid || null})})
+    fetch('/admin/settings/default_playlist', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({playlist_id: pid || null})})
         .then(r=>r.json()).then(d => { if(d.ok) toast('Default playlist updated'); });
 }
 function removeFromPlaylist(pid, base) {
     if(!confirm('Remove from playlist?')) return;
-    fetch(`/playlists/${pid}/remove_image`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({base})})
+    fetch(`/admin/playlists/${pid}/remove_image`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({base})})
         .then(r=>r.json()).then(d => { if(d.ok) window.location.reload(); });
 }
 
@@ -1255,7 +1255,7 @@ function listItemDrop(event) {
     else list.appendChild(srcEl);
 
     const newOrder = [...list.querySelectorAll('.img-card-list')].map(el => el.dataset.base);
-    fetch('/reorder', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({order: newOrder})})
+    fetch('/admin/reorder', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({order: newOrder})})
         .then(r=>r.json()).then(d => { if(!d.ok) toast('Reorder failed'); });
 }
 
@@ -1292,7 +1292,7 @@ function gridTileDrop(event) {
         if(!seen.has(el.dataset.base)) { seen.add(el.dataset.base); acc.push(el.dataset.base); }
         return acc;
     }, []);
-    fetch('/reorder', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({order: newOrder})})
+    fetch('/admin/reorder', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({order: newOrder})})
         .then(r=>r.json()).then(d => { if(!d.ok) toast('Reorder failed'); });
 }
 
@@ -1323,7 +1323,7 @@ function poolTabDrop(event, poolId) {
     if(poolId === 'general') { return; } // Dragging back to general — do nothing (user manually re-enables L/P)
     const pid = parseInt(poolId.replace('playlist-', ''));
     if(isNaN(pid)) return;
-    fetch(`/playlists/${pid}/add_image`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({base, disable_in_pool:true})})
+    fetch(`/admin/playlists/${pid}/add_image`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({base, disable_in_pool:true})})
         .then(r=>r.json()).then(d => { if(d.ok){ toast('Added to playlist'); window.location.reload(); } else toast(d.error || 'Error'); });
 }
 
@@ -1335,7 +1335,7 @@ function plDrop(event, pid) {
     document.getElementById('playlist-card-'+pid)?.classList.remove('drop-target');
     const base = event.dataTransfer.getData('text/plain') || dragBase;
     if(!base) return;
-    fetch(`/playlists/${pid}/add_image`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({base, disable_in_pool:true})})
+    fetch(`/admin/playlists/${pid}/add_image`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({base, disable_in_pool:true})})
         .then(r=>r.json()).then(d => { if(d.ok){ toast('Added to playlist'); window.location.reload(); } else toast(d.error || 'Error'); });
 }
 
@@ -1387,7 +1387,7 @@ function entryDrop(event) {
     else list.appendChild(srcEl);
 
     const newOrder = [...list.querySelectorAll('.img-card-list')].map(el => parseInt(el.dataset.entryId));
-    fetch(`/playlists/${pid}/reorder_entries`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({entry_ids: newOrder})})
+    fetch(`/admin/playlists/${pid}/reorder_entries`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({entry_ids: newOrder})})
         .then(r=>r.json()).then(d => { if(!d.ok) toast('Reorder failed'); });
 }
 
@@ -1439,7 +1439,7 @@ function entryGridDrop(event) {
         return acc;
     }, []);
 
-    fetch(`/playlists/${pid}/reorder_entries`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({entry_ids: newOrder})})
+    fetch(`/admin/playlists/${pid}/reorder_entries`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({entry_ids: newOrder})})
         .then(r=>r.json()).then(d => { if(!d.ok) toast('Reorder failed'); });
 }
 
@@ -1471,7 +1471,7 @@ function createUser() {
     const password = document.getElementById('new-password').value;
     const is_admin = document.getElementById('new-is-admin').checked;
     if(!username || !password) { toast('Username and password required'); return; }
-    fetch('/users/create', {method:'POST', headers:{'Content-Type':'application/json'},
+    fetch('/admin/users/create', {method:'POST', headers:{'Content-Type':'application/json'},
           body:JSON.stringify({username, password, is_admin})})
         .then(r=>r.json()).then(d => {
             if(d.ok) { toast('User created'); window.location.reload(); }
@@ -1480,7 +1480,7 @@ function createUser() {
 }
 function deleteUser(uid, username) {
     if(!confirm(`Delete user "${username}"?`)) return;
-    fetch(`/users/${uid}/delete`, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
+    fetch(`/admin/users/${uid}/delete`, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
         .then(r=>r.json()).then(d => {
             if(d.ok) { toast('User deleted'); window.location.reload(); }
             else toast('Error: ' + (d.error || 'unknown'));
@@ -1659,8 +1659,8 @@ function requestDitherPreview() {
     btn.disabled = true;
     const params = _buildParams();
     const url = edSt.entryId != null
-        ? '/entry-preview/' + edSt.entryId
-        : '/image-preview/' + encodeURIComponent(edSt.base);
+        ? '/admin/entry-preview/' + edSt.entryId
+        : '/admin/image-preview/' + encodeURIComponent(edSt.base);
     fetch(url, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -1770,7 +1770,7 @@ function _openEditorCommon(origSrc, fetchUrl) {
 function openEditorForEntry(entryId, origSrc) {
     edSt.entryId = entryId;
     edSt.base    = null;
-    _openEditorCommon(origSrc, '/entry-edit/' + entryId);
+    _openEditorCommon(origSrc, '/admin/entry-edit/' + entryId);
 }
 
 // Legacy: open editor for a general-pool base (kept for backward compat)
@@ -1779,7 +1779,7 @@ function openEditor(base) {
     edSt.entryId = null;
     const drawerImg = document.querySelector(`.img-card-list[data-base="${CSS.escape(base)}"] .drawer-orig-img`);
     const origSrc = drawerImg ? drawerImg.src : '';
-    _openEditorCommon(origSrc, '/image-edit/' + encodeURIComponent(base));
+    _openEditorCommon(origSrc, '/admin/image-edit/' + encodeURIComponent(base));
 }
 
 function closeEditor() {
@@ -2038,8 +2038,8 @@ function _buildParams() {
 function saveEdits() {
     if (!edSt.base && edSt.entryId == null) return;
     const url = edSt.entryId != null
-        ? '/entry-edit/' + edSt.entryId
-        : '/image-edit/' + encodeURIComponent(edSt.base);
+        ? '/admin/entry-edit/' + edSt.entryId
+        : '/admin/image-edit/' + encodeURIComponent(edSt.base);
     fetch(url, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -2074,7 +2074,7 @@ function openDrawerCropCanvas(card) {
         if (imgEl.naturalWidth) doRender();
         else imgEl.addEventListener('load', doRender, {once: true});
     } else {
-        fetch('/entry-edit/' + entryId)
+        fetch('/admin/entry-edit/' + entryId)
             .then(r => r.json())
             .then(data => {
                 card._editData = data;
@@ -2217,7 +2217,7 @@ function toggleFriendCode(span) {
 }
 
 function loadFriendsList() {
-    fetch('/friends')
+    fetch('/admin/friends')
         .then(r => r.json())
         .then(d => {
             if (d.ok) {
@@ -2241,7 +2241,7 @@ function addFriendFromInput() {
     const input = document.getElementById('add-friend-code-input');
     const code = input.value.trim();
     if (!code) return;
-    fetch('/friends/add', {
+    fetch('/admin/friends/add', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({code})
@@ -2263,7 +2263,7 @@ function loadAllCollaborators() {
         const pid = card.id.replace('playlist-card-', '');
         const div = document.getElementById(`playlist-collabs-${pid}`);
         if (!div) return;
-        fetch(`/playlists/${pid}/collaborators`)
+        fetch(`/admin/playlists/${pid}/collaborators`)
             .then(r => r.json())
             .then(d => {
                 if (d.ok && d.collaborators) {
@@ -2284,7 +2284,7 @@ function loadAllCollaborators() {
 
 function unsharePlaylist(pid, friendId) {
     if (!confirm('Stop sharing with this friend?')) return;
-    fetch(`/playlists/${pid}/unshare`, {
+    fetch(`/admin/playlists/${pid}/unshare`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({friend_id: friendId})
@@ -2310,7 +2310,7 @@ function openShareModal(pid, name, btn) {
     const modal = document.getElementById('share-modal');
     modal.classList.add('show');
     
-    fetch(`/playlists/${pid}/collaborators`)
+    fetch(`/admin/playlists/${pid}/collaborators`)
         .then(r => r.json())
         .then(d => {
             if (d.ok) {
@@ -2364,7 +2364,7 @@ function toggleShareInModal(friendId, shouldShare) {
         if (d.ok) {
             toast(shouldShare ? 'Shared' : 'Removed');
             // Refresh local cache and UI
-            fetch(`/playlists/${activeSharePlaylistId}/collaborators`)
+            fetch(`/admin/playlists/${activeSharePlaylistId}/collaborators`)
                 .then(r => r.json())
                 .then(d => {
                     if (d.ok) {
@@ -2411,7 +2411,7 @@ function _setBadge(entryId, state) {
 
 function _checkEntryReady(entryId) {
     if (_entryBadgeState[entryId] === 'ready') return;
-    fetch('/entry-artifact-status/' + entryId)
+    fetch('/admin/entry-artifact-status/' + entryId)
         .then(r => r.json())
         .then(d => {
             if (d.ready) {
@@ -2419,7 +2419,7 @@ function _checkEntryReady(entryId) {
             } else if (_entryBadgeState[entryId] !== 'reconverting') {
                 // Auto-trigger reconvert
                 _setBadge(entryId, 'reconverting');
-                fetch('/entry-reconvert/' + entryId, {
+                fetch('/admin/entry-reconvert/' + entryId, {
                     method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
                 }).then(() => _pollEntryReady(entryId));
             }
@@ -2431,7 +2431,7 @@ function _pollEntryReady(entryId, attempts) {
     attempts = attempts || 0;
     if (attempts > 40) { _setBadge(entryId, 'warn'); return; }  // 2-min timeout
     setTimeout(() => {
-        fetch('/entry-artifact-status/' + entryId)
+        fetch('/admin/entry-artifact-status/' + entryId)
             .then(r => r.json())
             .then(d => {
                 if (d.ready) _setBadge(entryId, 'ready');
@@ -2470,7 +2470,7 @@ function _updateFrameBadge(el, status) {
 
 async function _pollFrameBadge(el, mac) {
   try {
-    const r = await fetch(`/device-status/${encodeURIComponent(mac)}`);
+    const r = await fetch(`/admin/device-status/${encodeURIComponent(mac)}`);
     if (r.ok) {
       const d = await r.json();
       _updateFrameBadge(el, d.status);
@@ -2494,7 +2494,7 @@ async function _pollQueueStatus() {
   const list = document.getElementById('queue-task-list');
   if (!body) return;
   try {
-    const r = await fetch('/queue-status');
+    const r = await fetch('/admin/queue-status');
     if (!r.ok) { body.textContent = 'Queue: unavailable'; return; }
     const d = await r.json();
     if (d.error && d.active === 0 && d.pending === 0) {

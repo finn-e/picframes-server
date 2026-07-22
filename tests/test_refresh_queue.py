@@ -57,7 +57,7 @@ def test_queue_entry_served_after_zip_refetch_and_autocleared(logged_in):
     logged_in.post('/api/queue', json={
         'entry_id': eids[2], 'source': TEST_MAC, 'playlist_id': pid})
     # Device re-downloads the zip → redownload flag clears
-    assert logged_in.get('/api/daily-zip', headers=device_headers()).status_code == 200
+    assert logged_in.get('/api/image-zip', headers=device_headers()).status_code == 200
 
     body = _refresh(logged_in)
     assert body['image_index'] == 2                 # in-pool entry → pool index
@@ -71,10 +71,10 @@ def test_queue_entry_served_after_zip_refetch_and_autocleared(logged_in):
 def test_queued_out_of_pool_entry_gets_appended_index(logged_in):
     pid, eids, _ = setup_playlist_device(logged_in, bases=('a', 'b'))
     # Disable landscape on entry 1 → it drops out of this device's pool
-    logged_in.post(f'/entry-toggle-orient/{eids[1]}', json={'orient': 'l', 'enabled': False})
+    logged_in.post(f'/admin/entry-toggle-orient/{eids[1]}', json={'orient': 'l', 'enabled': False})
     logged_in.post('/api/queue', json={
         'entry_id': eids[1], 'source': TEST_MAC, 'playlist_id': pid})
-    r = logged_in.get('/api/daily-zip', headers=device_headers())
+    r = logged_in.get('/api/image-zip', headers=device_headers())
     # Zip appends the queued out-of-pool bin
     import io, zipfile
     names = zipfile.ZipFile(io.BytesIO(r.data)).namelist()
@@ -91,7 +91,7 @@ def test_queued_served_once_then_next_poll_advances(logged_in):
     pid, eids, _ = setup_playlist_device(logged_in, bases=('a', 'b', 'c'))
     logged_in.post('/api/queue', json={
         'entry_id': eids[1], 'source': TEST_MAC, 'playlist_id': pid})
-    logged_in.get('/api/daily-zip', headers=device_headers())
+    logged_in.get('/api/image-zip', headers=device_headers())
 
     assert _refresh(logged_in)['image_index'] == 1           # queued, served once
     assert _refresh(logged_in, skip=True)['image_index'] == 2  # next wake: skip advances to q+1
@@ -102,7 +102,7 @@ def test_queued_last_entry_next_poll_wraps_to_zero(logged_in):
     pid, eids, _ = setup_playlist_device(logged_in, bases=('a', 'b', 'c'))
     logged_in.post('/api/queue', json={
         'entry_id': eids[2], 'source': TEST_MAC, 'playlist_id': pid})
-    logged_in.get('/api/daily-zip', headers=device_headers())
+    logged_in.get('/api/image-zip', headers=device_headers())
 
     assert _refresh(logged_in)['image_index'] == 2            # queued = last pool entry
     assert _refresh(logged_in, skip=True)['image_index'] == 0  # skip wraps past end
@@ -112,10 +112,10 @@ def test_queued_out_of_pool_next_poll_wraps_to_zero(logged_in):
     """Out-of-pool queued entry gets the appended index len(pool); it has no
     in-pool successor, so the next poll restarts the playlist at 0."""
     pid, eids, _ = setup_playlist_device(logged_in, bases=('a', 'b'))
-    logged_in.post(f'/entry-toggle-orient/{eids[1]}', json={'orient': 'l', 'enabled': False})
+    logged_in.post(f'/admin/entry-toggle-orient/{eids[1]}', json={'orient': 'l', 'enabled': False})
     logged_in.post('/api/queue', json={
         'entry_id': eids[1], 'source': TEST_MAC, 'playlist_id': pid})
-    logged_in.get('/api/daily-zip', headers=device_headers())
+    logged_in.get('/api/image-zip', headers=device_headers())
 
     assert _refresh(logged_in)['image_index'] == 1  # appended (len(pool)==1)
     assert _refresh(logged_in)['image_index'] == 0  # wrap into the real pool
@@ -132,7 +132,7 @@ def test_queue_toggle_dequeues(logged_in):
 def test_queue_for_other_device_does_not_apply(logged_in):
     setup_playlist_device(logged_in, bases=('a', 'b', 'c'))
     logged_in.post('/api/queue', json={'entry_id': 1, 'source': '11:22:33:44:55:66'})
-    logged_in.get('/api/daily-zip', headers=device_headers())
+    logged_in.get('/api/image-zip', headers=device_headers())
     assert _refresh(logged_in)['image_index'] == 0
     assert db.load_state()['queued_image'] is not None
 
@@ -178,13 +178,13 @@ def test_playlist_sync_toggled_vs_non_sync(logged_in):
     mac2 = '00:11:22:33:44:55'
     from tests.conftest import register_device
     register_device(logged_in, mac2)
-    r_assign = logged_in.post('/device_playlist', json={'mac': mac2, 'playlist_id': pid})
+    r_assign = logged_in.post('/admin/device_playlist', json={'mac': mac2, 'playlist_id': pid})
     print("ASSIGN STATUS:", r_assign.status_code, r_assign.get_json())
     assert r_assign.status_code == 200
 
     # Case 1: Sync is disabled on this playlist.
     # When multiple devices phone home, they should advance sequentially (taking turns).
-    r_settings = logged_in.post(f'/playlists/{pid}/settings', json={
+    r_settings = logged_in.post(f'/admin/playlists/{pid}/settings', json={
         'name': 'TestPL', 'sleep_interval': 900, 'shuffle': False, 'sync': False
     })
     print("SETTINGS STATUS:", r_settings.status_code, r_settings.get_json())
@@ -208,7 +208,7 @@ def test_playlist_sync_toggled_vs_non_sync(logged_in):
 
     # Case 2: Sync is enabled on this playlist.
     # They should display the SAME image (cooldown stops the second one from advancing).
-    logged_in.post(f'/playlists/{pid}/settings', json={
+    logged_in.post(f'/admin/playlists/{pid}/settings', json={
         'name': 'TestPL', 'sleep_interval': 900, 'shuffle': False, 'sync': True
     })
 

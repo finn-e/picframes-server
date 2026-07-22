@@ -66,8 +66,8 @@ def client(app):
 @pytest.fixture
 def logged_in(client):
     """Client with an authenticated admin dashboard session."""
-    r = client.post('/login', data={'username': 'admin', 'password': 'admin'})
-    assert r.status_code == 302 and '/login' not in r.headers['Location']
+    r = client.post('/ui/login', data={'username': 'admin', 'password': 'admin'})
+    assert r.status_code == 302 and '/ui/login' not in r.headers['Location']
     return client
 
 
@@ -167,16 +167,16 @@ def setup_playlist_device(client, mac=TEST_MAC, bases=('photo',), playlist='PL')
     """Login-authenticated *client*: create originals, a playlist with entries,
     register a device and assign it to the playlist.
     Returns (pid, [entry_ids], token)."""
-    r = client.post('/playlists/create', json={'name': playlist})
+    r = client.post('/admin/playlists/create', json={'name': playlist})
     pid = r.get_json()['id']
     entry_ids = []
     for base in bases:
         make_original(base)
-        r = client.post(f'/playlists/{pid}/add_image', json={'base': base})
+        r = client.post(f'/admin/playlists/{pid}/add_image', json={'base': base})
         assert r.status_code == 200, r.get_data(as_text=True)
         entry_ids.append(r.get_json()['entry_id'])
     token = register_device(client, mac)
-    r = client.post('/device_playlist', json={'mac': mac, 'playlist_id': pid})
+    r = client.post('/admin/device_playlist', json={'mac': mac, 'playlist_id': pid})
     assert r.status_code == 200
     return pid, entry_ids, token
 
