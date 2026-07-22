@@ -66,8 +66,8 @@ def client(app):
 @pytest.fixture
 def logged_in(client):
     """Client with an authenticated admin dashboard session."""
-    r = client.post('/ui/login', data={'username': 'admin', 'password': 'admin'})
-    assert r.status_code == 302 and '/ui/login' not in r.headers['Location']
+    r = client.post('/login', data={'username': 'admin', 'password': 'admin'})
+    assert r.status_code == 302 and '/login' not in r.headers['Location']
     return client
 
 
