@@ -33,11 +33,12 @@ def create_app():
     def auth_gate():
         path = request.path
         # Deprecated bare-root paths pass through (device firmware still uses them)
+        # Bare-root deprecated paths (firmware still uses these; /api/* already open above)
         deprecated_open = (
             '/daily-config', '/api/daily-config',
             '/daily-zip',    '/api/daily-zip',
-            '/refresh',      '/api/refresh',
-            '/update',       '/api/update',
+            '/refresh',
+            '/update',
         )
         if (path.startswith('/api/')
                 or path.startswith('/static/')
@@ -83,9 +84,7 @@ def create_app():
     app.add_url_rule('/daily-zip',        'dep_daily_zip',        _deprecated('/api/image-zip',    device_daily_zip))
     app.add_url_rule('/api/daily-zip',    'dep_api_daily_zip',    _deprecated('/api/image-zip',    device_daily_zip))
     app.add_url_rule('/refresh',          'dep_refresh',          _deprecated('/api/refresh',      device_refresh),  methods=['POST'])
-    app.add_url_rule('/api/refresh',      'dep_api_refresh',      _deprecated('/api/refresh',      device_refresh),  methods=['POST'])
     app.add_url_rule('/update',           'dep_update',           _deprecated('/api/update',       api_update))
-    app.add_url_rule('/api/update',       'dep_api_update',       _deprecated('/api/update',       api_update))
 
     return app
 
