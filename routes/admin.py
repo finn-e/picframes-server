@@ -754,6 +754,48 @@ def user_delete(uid):
     return jsonify({'ok': True})
 
 
+@admin_bp.route('/change-password', methods=['POST'])
+def change_password():
+    from werkzeug.security import check_password_hash, generate_password_hash
+    data = request.get_json() or {}
+    current = data.get('current_password', '')
+    new_pw  = data.get('new_password', '')
+    if not current or not new_pw:
+        return jsonify({'ok': False, 'error': 'Both fields required'}), 400
+    uid = session.get('user_id')
+    if not uid:
+        return jsonify({'ok': False, 'error': 'Not logged in'}), 401
+    with db.managed_db() as conn:
+        row = conn.execute('SELECT password_hash FROM users WHERE id = ?', (uid,)).fetchone()
+    if not row:
+        return jsonify({'ok': False, 'error': 'User not found'}), 404
+    if not check_password_hash(row['password_hash'], current):
+        return jsonify({'ok': False, 'error': 'Current password is incorrect'}), 400
+    new_hash = generate_password_hash(new_pw)
+    with db.managed_db() as conn:
+        conn.execute('UPDATE users SET password_hash = ? WHERE id = ?', (new_hash, uid))
+    return jsonify({'ok': True})
+
+
+@admin_bp.route('/users/<int:uid>/reset-password', methods=['POST'])
+def user_reset_password(uid):
+    from werkzeug.security import generate_password_hash
+    err = _require_admin()
+    if err: return err
+    if uid == session.get('user_id'):
+        return jsonify({'ok': False, 'error': 'Use change-password to update your own password'}), 400
+    data = request.get_json() or {}
+    new_pw = data.get('new_password', '')
+    if not new_pw:
+        return jsonify({'ok': False, 'error': 'New password is required'}), 400
+    new_hash = generate_password_hash(new_pw)
+    with db.managed_db() as conn:
+        result = conn.execute('UPDATE users SET password_hash = ? WHERE id = ?', (new_hash, uid))
+        if result.rowcount == 0:
+            return jsonify({'ok': False, 'error': 'User not found'}), 404
+    return jsonify({'ok': True})
+
+
 # ---------------------------------------------------------------------------
 # Non-destructive image editor endpoints
 # ---------------------------------------------------------------------------

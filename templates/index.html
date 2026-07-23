@@ -343,6 +343,7 @@
             </div>
 
             <div class="user-actions" style="margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1rem;">
+                <button class="btn btn-ghost btn-sm" onclick="openPasswordModal('self')">🔑 Change Password</button>
                 <a href="{{ url_for('ui.logout') }}" class="btn btn-ghost btn-sm">🚪 Sign Out</a>
             </div>
         </div>
@@ -746,6 +747,7 @@
                 </div>
             </div>
             {% if user.id != current_user.user_id %}
+            <button class="btn btn-ghost btn-sm" style="font-size:1rem; padding:0.25rem 0.5rem;" title="Reset password" onclick="openPasswordModal('reset', {{ user.id }}, '{{ user.username }}')">🔑</button>
             <button class="btn btn-danger btn-sm" onclick="deleteUser({{ user.id }}, '{{ user.username }}')">✕</button>
             {% endif %}
         </div>
@@ -765,6 +767,30 @@
     </div><!-- /drawer-body-user-admin -->
     </div><!-- /drawer-section user-admin -->
     {% endif %}
+</div>
+
+<!-- ===== Password Modal ===== -->
+<div id="pw-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:500; align-items:center; justify-content:center;">
+  <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; padding:1.5rem; width:min(400px,90vw); display:flex; flex-direction:column; gap:0.75rem;">
+    <div style="font-weight:700; font-size:1.1rem;">🔑 <span id="pw-modal-title">Change Password</span></div>
+    <div id="pw-current-row">
+      <label style="font-size:0.85rem; color:var(--muted);">Current password</label>
+      <input id="pw-current" type="password" style="width:100%; margin-top:0.25rem; padding:0.4rem 0.6rem; border:1px solid var(--border); border-radius:7px; background:var(--bg); color:var(--text); font-size:0.9rem; box-sizing:border-box;">
+    </div>
+    <div>
+      <label style="font-size:0.85rem; color:var(--muted);">New password</label>
+      <input id="pw-new" type="password" style="width:100%; margin-top:0.25rem; padding:0.4rem 0.6rem; border:1px solid var(--border); border-radius:7px; background:var(--bg); color:var(--text); font-size:0.9rem; box-sizing:border-box;">
+    </div>
+    <div>
+      <label style="font-size:0.85rem; color:var(--muted);">Confirm new password</label>
+      <input id="pw-confirm" type="password" style="width:100%; margin-top:0.25rem; padding:0.4rem 0.6rem; border:1px solid var(--border); border-radius:7px; background:var(--bg); color:var(--text); font-size:0.9rem; box-sizing:border-box;">
+    </div>
+    <div id="pw-error" style="color:var(--danger); font-size:0.82rem; display:none;"></div>
+    <div style="display:flex; gap:0.5rem; justify-content:flex-end; margin-top:0.25rem;">
+      <button class="btn btn-ghost btn-sm" onclick="closePwModal()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="submitPwModal()">Save</button>
+    </div>
+  </div>
 </div>
 
 <!-- ===== Image Editor Modal ===== -->
@@ -1478,6 +1504,58 @@ function createUser() {
             else toast('Error: ' + (d.error || 'unknown'));
         });
 }
+let _pwMode = 'self', _pwUid = null;
+
+function openPasswordModal(mode, uid, username) {
+    _pwMode = mode; _pwUid = uid || null;
+    document.getElementById('pw-modal-title').textContent =
+        mode === 'self' ? 'Change Password' : `Reset Password — ${username}`;
+    document.getElementById('pw-current-row').style.display = mode === 'self' ? '' : 'none';
+    document.getElementById('pw-current').value = '';
+    document.getElementById('pw-new').value = '';
+    document.getElementById('pw-confirm').value = '';
+    document.getElementById('pw-error').style.display = 'none';
+    document.getElementById('pw-modal').style.display = 'flex';
+    (mode === 'self'
+        ? document.getElementById('pw-current')
+        : document.getElementById('pw-new')).focus();
+}
+
+function closePwModal() {
+    document.getElementById('pw-modal').style.display = 'none';
+}
+
+function submitPwModal() {
+    const newPw  = document.getElementById('pw-new').value;
+    const confirm = document.getElementById('pw-confirm').value;
+    if (!newPw) { showPwError('New password is required'); return; }
+    if (newPw !== confirm) { showPwError('Passwords do not match'); return; }
+
+    let url, body;
+    if (_pwMode === 'self') {
+        const cur = document.getElementById('pw-current').value;
+        if (!cur) { showPwError('Current password is required'); return; }
+        url = '/admin/change-password';
+        body = { current_password: cur, new_password: newPw };
+    } else {
+        url = `/admin/users/${_pwUid}/reset-password`;
+        body = { new_password: newPw };
+    }
+
+    fetch(url, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) })
+        .then(r => r.json())
+        .then(d => {
+            if (d.ok) { closePwModal(); toast('Password updated'); }
+            else showPwError(d.error || 'Error');
+        })
+        .catch(() => showPwError('Network error'));
+}
+
+function showPwError(msg) {
+    const el = document.getElementById('pw-error');
+    el.textContent = msg; el.style.display = '';
+}
+
 function deleteUser(uid, username) {
     if(!confirm(`Delete user "${username}"?`)) return;
     fetch(`/admin/users/${uid}/delete`, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
@@ -1793,7 +1871,7 @@ function closeEditor() {
 }
 
 // Close on Escape or click outside editor-wrap
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeEditor(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeEditor(); closePwModal(); } });
 document.getElementById('editor-modal').addEventListener('click', e => {
     if (e.target === document.getElementById('editor-modal')) closeEditor();
 });
