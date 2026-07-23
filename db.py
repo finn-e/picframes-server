@@ -10,6 +10,7 @@ import threading
 import sqlite3
 import time as _time
 import uuid as _uuid_mod
+from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,15 @@ def get_db():
     conn = sqlite3.connect(DB_PATH, timeout=10.0)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+@contextmanager
+def managed_db():
+    conn = get_db()
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def _get_owner_id(owner_id=None):
@@ -82,196 +92,194 @@ def _generate_unique_friend_code(conn):
 
 
 def init_db():
-    conn = get_db()
-    c = conn.cursor()
+    with managed_db() as conn:
+        c = conn.cursor()
 
-    c.execute("""CREATE TABLE IF NOT EXISTS global_settings (
-        key TEXT PRIMARY KEY, value TEXT)""")
-    c.execute("""CREATE TABLE IF NOT EXISTS devices (
-        mac TEXT PRIMARY KEY, name TEXT, orientation TEXT, debug INTEGER,
-        mode TEXT, shuffle INTEGER DEFAULT 0,
-        flip_l INTEGER DEFAULT 0, flip_p INTEGER DEFAULT 0, images_json TEXT)""")
-    c.execute("""CREATE TABLE IF NOT EXISTS crops (
-        base TEXT PRIMARY KEY, l REAL, p REAL)""")
-    c.execute("""CREATE TABLE IF NOT EXISTS enabled (
-        base TEXT PRIMARY KEY, l INTEGER, p INTEGER)""")
-    c.execute("""CREATE TABLE IF NOT EXISTS image_order (
-        base TEXT PRIMARY KEY, sort_order INTEGER)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS global_settings (
+            key TEXT PRIMARY KEY, value TEXT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS devices (
+            mac TEXT PRIMARY KEY, name TEXT, orientation TEXT, debug INTEGER,
+            mode TEXT, shuffle INTEGER DEFAULT 0,
+            flip_l INTEGER DEFAULT 0, flip_p INTEGER DEFAULT 0, images_json TEXT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS crops (
+            base TEXT PRIMARY KEY, l REAL, p REAL)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS enabled (
+            base TEXT PRIMARY KEY, l INTEGER, p INTEGER)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS image_order (
+            base TEXT PRIMARY KEY, sort_order INTEGER)""")
 
-    # Users table
-    c.execute("""CREATE TABLE IF NOT EXISTS users (
-        id            INTEGER PRIMARY KEY AUTOINCREMENT,
-        username      TEXT NOT NULL UNIQUE,
-        password_hash TEXT NOT NULL,
-        is_admin      INTEGER DEFAULT 0,
-        friend_code   TEXT UNIQUE,
-        created_at    TEXT DEFAULT (datetime('now')))""")
+        # Users table
+        c.execute("""CREATE TABLE IF NOT EXISTS users (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            username      TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            is_admin      INTEGER DEFAULT 0,
+            friend_code   TEXT UNIQUE,
+            created_at    TEXT DEFAULT (datetime('now')))""")
 
-    # Friendships table
-    c.execute("""CREATE TABLE IF NOT EXISTS friendships (
-        user_id1 INTEGER NOT NULL,
-        user_id2 INTEGER NOT NULL,
-        PRIMARY KEY (user_id1, user_id2),
-        FOREIGN KEY (user_id1) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY (user_id2) REFERENCES users(id) ON DELETE CASCADE)""")
+        # Friendships table
+        c.execute("""CREATE TABLE IF NOT EXISTS friendships (
+            user_id1 INTEGER NOT NULL,
+            user_id2 INTEGER NOT NULL,
+            PRIMARY KEY (user_id1, user_id2),
+            FOREIGN KEY (user_id1) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id2) REFERENCES users(id) ON DELETE CASCADE)""")
 
-    # Playlist shares table
-    c.execute("""CREATE TABLE IF NOT EXISTS playlist_shares (
-        playlist_id INTEGER NOT NULL,
-        user_id     INTEGER NOT NULL,
-        PRIMARY KEY (playlist_id, user_id),
-        FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
-        FOREIGN KEY (user_id)     REFERENCES users(id) ON DELETE CASCADE)""")
+        # Playlist shares table
+        c.execute("""CREATE TABLE IF NOT EXISTS playlist_shares (
+            playlist_id INTEGER NOT NULL,
+            user_id     INTEGER NOT NULL,
+            PRIMARY KEY (playlist_id, user_id),
+            FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id)     REFERENCES users(id) ON DELETE CASCADE)""")
 
-    # Playlist tables
-    c.execute("""CREATE TABLE IF NOT EXISTS playlists (
-        id             INTEGER PRIMARY KEY AUTOINCREMENT,
-        name           TEXT NOT NULL,
-        shuffle        INTEGER DEFAULT 0,
-        sync           INTEGER DEFAULT 1,
-        sleep_interval INTEGER DEFAULT 900)""")
-    c.execute("""CREATE TABLE IF NOT EXISTS playlist_images (
-        playlist_id INTEGER NOT NULL,
-        base        TEXT NOT NULL,
-        sort_order  INTEGER DEFAULT 0,
-        PRIMARY KEY (playlist_id, base),
-        FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE)""")
-    c.execute("""CREATE TABLE IF NOT EXISTS playlist_devices (
-        mac         TEXT PRIMARY KEY,
-        playlist_id INTEGER,
-        FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE SET NULL)""")
+        # Playlist tables
+        c.execute("""CREATE TABLE IF NOT EXISTS playlists (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            name           TEXT NOT NULL,
+            shuffle        INTEGER DEFAULT 0,
+            sync           INTEGER DEFAULT 1,
+            sleep_interval INTEGER DEFAULT 900)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS playlist_images (
+            playlist_id INTEGER NOT NULL,
+            base        TEXT NOT NULL,
+            sort_order  INTEGER DEFAULT 0,
+            PRIMARY KEY (playlist_id, base),
+            FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS playlist_devices (
+            mac         TEXT PRIMARY KEY,
+            playlist_id INTEGER,
+            FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE SET NULL)""")
 
-    for col, defn in [
-        ('shuffle',    'INTEGER DEFAULT 0'),
-        ('flip_l',     'INTEGER DEFAULT 0'),
-        ('flip_p',     'INTEGER DEFAULT 0'),
-        ('hw_profile', "TEXT DEFAULT ''"),
-        # resolution stored as 'WxH' string; NULL = use type default / 800x480
-        ('resolution', 'TEXT DEFAULT NULL'),
-        # firmware version reported by device via X-Firmware-Version header
-        ('fw_version', 'TEXT DEFAULT NULL'),
-        # show_fw: 1 = show firmware version in caption overlay on device
-        ('show_fw',    'INTEGER DEFAULT 0'),
-        # re-pair window: epoch seconds until which token re-issue is allowed
-        ('repair_until', 'INTEGER DEFAULT NULL'),
-    ]:
-        _col(conn, 'devices', col, defn)
-    for col, defn in [
-        ('title',        "INTEGER DEFAULT 0"),
-        ('caption_mode', "TEXT DEFAULT 'none'"),
-        ('description',  "TEXT DEFAULT ''"),
-    ]:
-        _col(conn, 'enabled', col, defn)
+        for col, defn in [
+            ('shuffle',    'INTEGER DEFAULT 0'),
+            ('flip_l',     'INTEGER DEFAULT 0'),
+            ('flip_p',     'INTEGER DEFAULT 0'),
+            ('hw_profile', "TEXT DEFAULT ''"),
+            # resolution stored as 'WxH' string; NULL = use type default / 800x480
+            ('resolution', 'TEXT DEFAULT NULL'),
+            # firmware version reported by device via X-Firmware-Version header
+            ('fw_version', 'TEXT DEFAULT NULL'),
+            # show_fw: 1 = show firmware version in caption overlay on device
+            ('show_fw',    'INTEGER DEFAULT 0'),
+            # re-pair window: epoch seconds until which token re-issue is allowed
+            ('repair_until', 'INTEGER DEFAULT NULL'),
+        ]:
+            _col(conn, 'devices', col, defn)
+        for col, defn in [
+            ('title',        "INTEGER DEFAULT 0"),
+            ('caption_mode', "TEXT DEFAULT 'none'"),
+            ('description',  "TEXT DEFAULT ''"),
+        ]:
+            _col(conn, 'enabled', col, defn)
 
-    for col, defn in [
-        ('owner_id', 'INTEGER DEFAULT 1'),
-    ]:
-        _col(conn, 'playlists', col, defn)
-        _col(conn, 'devices', col, defn)
-        _col(conn, 'image_order', col, defn)
+        for col, defn in [
+            ('owner_id', 'INTEGER DEFAULT 1'),
+        ]:
+            _col(conn, 'playlists', col, defn)
+            _col(conn, 'devices', col, defn)
+            _col(conn, 'image_order', col, defn)
 
-    # resolution lock: locked to 'WxH' by the first device assigned; NULL = unlocked
-    _col(conn, 'playlists', 'resolution', 'TEXT DEFAULT NULL')
+        # resolution lock: locked to 'WxH' by the first device assigned; NULL = unlocked
+        _col(conn, 'playlists', 'resolution', 'TEXT DEFAULT NULL')
 
-    # Battery history
-    c.execute("""CREATE TABLE IF NOT EXISTS battery_history (
-        mac TEXT NOT NULL, ts INTEGER NOT NULL, pct INTEGER NOT NULL)""")
-    c.execute("""CREATE INDEX IF NOT EXISTS idx_battery_mac_ts
-        ON battery_history (mac, ts)""")
+        # Battery history
+        c.execute("""CREATE TABLE IF NOT EXISTS battery_history (
+            mac TEXT NOT NULL, ts INTEGER NOT NULL, pct INTEGER NOT NULL)""")
+        c.execute("""CREATE INDEX IF NOT EXISTS idx_battery_mac_ts
+            ON battery_history (mac, ts)""")
 
-    # Non-destructive image edit params — per base (legacy; obsoleted by playlist_entries).
-    # Kept in DB for rollback; new code writes per-entry edits to playlist_entries instead.
-    c.execute("""CREATE TABLE IF NOT EXISTS image_edits (
-        base      TEXT PRIMARY KEY,
-        crop_l_x  REAL, crop_l_y REAL, crop_l_w REAL, crop_l_h REAL,
-        crop_p_x  REAL, crop_p_y REAL, crop_p_w REAL, crop_p_h REAL,
-        hue_shift REAL DEFAULT 0,
-        saturation REAL DEFAULT 1,
-        value_adj  REAL DEFAULT 1,
-        r_gain     REAL DEFAULT 1,
-        g_gain     REAL DEFAULT 1,
-        b_gain     REAL DEFAULT 1,
-        bg_color   TEXT DEFAULT '#ffffff'
-    )""")
+        # Non-destructive image edit params — per base (legacy; obsoleted by playlist_entries).
+        # Kept in DB for rollback; new code writes per-entry edits to playlist_entries instead.
+        c.execute("""CREATE TABLE IF NOT EXISTS image_edits (
+            base      TEXT PRIMARY KEY,
+            crop_l_x  REAL, crop_l_y REAL, crop_l_w REAL, crop_l_h REAL,
+            crop_p_x  REAL, crop_p_y REAL, crop_p_w REAL, crop_p_h REAL,
+            hue_shift REAL DEFAULT 0,
+            saturation REAL DEFAULT 1,
+            value_adj  REAL DEFAULT 1,
+            r_gain     REAL DEFAULT 1,
+            g_gain     REAL DEFAULT 1,
+            b_gain     REAL DEFAULT 1,
+            bg_color   TEXT DEFAULT '#ffffff'
+        )""")
 
-    # Per-image identity table: uuid PK, original filename, owner scoping
-    c.execute("""CREATE TABLE IF NOT EXISTS images (
-        uuid              TEXT PRIMARY KEY,
-        original_filename TEXT NOT NULL,
-        owner_id          INTEGER DEFAULT 1
-    )""")
+        # Per-image identity table: uuid PK, original filename, owner scoping
+        c.execute("""CREATE TABLE IF NOT EXISTS images (
+            uuid              TEXT PRIMARY KEY,
+            original_filename TEXT NOT NULL,
+            owner_id          INTEGER DEFAULT 1
+        )""")
 
-    # First-class playlist entries: per-entry title (= bin caption) + per-entry editor settings
-    c.execute("""CREATE TABLE IF NOT EXISTS playlist_entries (
-        id         INTEGER PRIMARY KEY AUTOINCREMENT,
-        playlist_id INTEGER NOT NULL,
-        image_uuid  TEXT NOT NULL,
-        position    INTEGER DEFAULT 0,
-        title       TEXT NOT NULL DEFAULT '',
-        crop_l_x REAL, crop_l_y REAL, crop_l_w REAL, crop_l_h REAL,
-        crop_p_x REAL, crop_p_y REAL, crop_p_w REAL, crop_p_h REAL,
-        hue_shift  REAL DEFAULT 0,
-        saturation REAL DEFAULT 1,
-        value_adj  REAL DEFAULT 1,
-        r_gain     REAL DEFAULT 1,
-        g_gain     REAL DEFAULT 1,
-        b_gain     REAL DEFAULT 1,
-        bg_color   TEXT DEFAULT '#ffffff',
-        rotate     INTEGER DEFAULT 0,
-        enabled_l  INTEGER DEFAULT 1,
-        enabled_p  INTEGER DEFAULT 1,
-        FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
-        FOREIGN KEY (image_uuid)  REFERENCES images(uuid)
-    )""")
+        # First-class playlist entries: per-entry title (= bin caption) + per-entry editor settings
+        c.execute("""CREATE TABLE IF NOT EXISTS playlist_entries (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            playlist_id INTEGER NOT NULL,
+            image_uuid  TEXT NOT NULL,
+            position    INTEGER DEFAULT 0,
+            title       TEXT NOT NULL DEFAULT '',
+            crop_l_x REAL, crop_l_y REAL, crop_l_w REAL, crop_l_h REAL,
+            crop_p_x REAL, crop_p_y REAL, crop_p_w REAL, crop_p_h REAL,
+            hue_shift  REAL DEFAULT 0,
+            saturation REAL DEFAULT 1,
+            value_adj  REAL DEFAULT 1,
+            r_gain     REAL DEFAULT 1,
+            g_gain     REAL DEFAULT 1,
+            b_gain     REAL DEFAULT 1,
+            bg_color   TEXT DEFAULT '#ffffff',
+            rotate     INTEGER DEFAULT 0,
+            enabled_l  INTEGER DEFAULT 1,
+            enabled_p  INTEGER DEFAULT 1,
+            FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
+            FOREIGN KEY (image_uuid)  REFERENCES images(uuid)
+        )""")
 
-    # Migration guard: add rotate column if missing (table already exists in live DB)
-    try:
-        c.execute("ALTER TABLE image_edits ADD COLUMN rotate INTEGER DEFAULT 0")
+        # Migration guard: add rotate column if missing (table already exists in live DB)
+        try:
+            c.execute("ALTER TABLE image_edits ADD COLUMN rotate INTEGER DEFAULT 0")
+            conn.commit()
+        except Exception:
+            pass  # column already exists
+
+        # Migration: add 4×3 crop columns to playlist_entries
+        for col in ('crop_l43_x', 'crop_l43_y', 'crop_l43_w', 'crop_l43_h',
+                    'crop_p34_x', 'crop_p34_y', 'crop_p34_w', 'crop_p34_h'):
+            _col(conn, 'playlist_entries', col, 'REAL DEFAULT NULL')
+
+        _col(conn, 'users', 'friend_code', 'TEXT DEFAULT NULL')
+
+        # Fix hw_profile: 13in3 board was incorrectly registered as EE04; it is EE02
+        conn.execute(
+            "UPDATE devices SET hw_profile='Seeed-EE02-Spectra6-13in3' WHERE hw_profile='Seeed-EE04-Spectra6-13in3'"
+        )
         conn.commit()
-    except Exception:
-        pass  # column already exists
 
-    # Migration: add 4×3 crop columns to playlist_entries
-    for col in ('crop_l43_x', 'crop_l43_y', 'crop_l43_w', 'crop_l43_h',
-                'crop_p34_x', 'crop_p34_y', 'crop_p34_w', 'crop_p34_h'):
-        _col(conn, 'playlist_entries', col, 'REAL DEFAULT NULL')
+        # Backfill missing friend codes, and regen any old non-uppercase-alpha codes
+        import re as _re
+        _new_fmt = _re.compile(r'^[A-Z]{4}-[A-Z]{4}$')
+        rows = conn.execute("SELECT id, friend_code FROM users").fetchall()
+        for row in rows:
+            if not row['friend_code'] or not _new_fmt.match(row['friend_code']):
+                code = _generate_unique_friend_code(conn)
+                conn.execute("UPDATE users SET friend_code=? WHERE id=?", (code, row['id']))
+        conn.commit()
 
-    _col(conn, 'users', 'friend_code', 'TEXT DEFAULT NULL')
+        _seed_admin(conn, c)
 
-    # Fix hw_profile: 13in3 board was incorrectly registered as EE04; it is EE02
-    conn.execute(
-        "UPDATE devices SET hw_profile='Seeed-EE02-Spectra6-13in3' WHERE hw_profile='Seeed-EE04-Spectra6-13in3'"
-    )
-    conn.commit()
+        # One-time migration from legacy JSON files
+        c.execute("SELECT COUNT(*) FROM global_settings")
+        if c.fetchone()[0] == 0:
+            _migrate_legacy(conn, c)
 
-    # Backfill missing friend codes, and regen any old non-uppercase-alpha codes
-    import re as _re
-    _new_fmt = _re.compile(r'^[A-Z]{4}-[A-Z]{4}$')
-    rows = conn.execute("SELECT id, friend_code FROM users").fetchall()
-    for row in rows:
-        if not row['friend_code'] or not _new_fmt.match(row['friend_code']):
-            code = _generate_unique_friend_code(conn)
-            conn.execute("UPDATE users SET friend_code=? WHERE id=?", (code, row['id']))
-    conn.commit()
+        # One-time migration: create Default playlist from old global shuffle/sync/timer
+        c.execute("SELECT COUNT(*) FROM global_settings WHERE key='playlists_migrated'")
+        if c.fetchone()[0] == 0:
+            _migrate_playlists(conn, c)
 
-    _seed_admin(conn, c)
-
-    # One-time migration from legacy JSON files
-    c.execute("SELECT COUNT(*) FROM global_settings")
-    if c.fetchone()[0] == 0:
-        _migrate_legacy(conn, c)
-
-    # One-time migration: create Default playlist from old global shuffle/sync/timer
-    c.execute("SELECT COUNT(*) FROM global_settings WHERE key='playlists_migrated'")
-    if c.fetchone()[0] == 0:
-        _migrate_playlists(conn, c)
-
-    # One-time migration: backfill images table + playlist_entries from playlist_images
-    c.execute("SELECT COUNT(*) FROM global_settings WHERE key='entries_migration_done'")
-    if c.fetchone()[0] == 0:
-        _migrate_entries(conn, c)
-
-    conn.close()
+        # One-time migration: backfill images table + playlist_entries from playlist_images
+        c.execute("SELECT COUNT(*) FROM global_settings WHERE key='entries_migration_done'")
+        if c.fetchone()[0] == 0:
+            _migrate_entries(conn, c)
 
 
 def _migrate_legacy(conn, c):
@@ -376,10 +384,9 @@ def _seed_admin(conn, c):
 
 def get_user_by_username(username):
     try:
-        conn = get_db()
-        row = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
-        conn.close()
-        return dict(row) if row else None
+        with managed_db() as conn:
+            row = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+            return dict(row) if row else None
     except Exception:
         return None
 
@@ -396,15 +403,14 @@ def get_user_stats():
     """Per-user counts of images, playlists and devices, keyed by user id."""
     stats = {}
     try:
-        conn = get_db()
-        for table, key in (('image_order', 'images'),
-                           ('playlists', 'playlists'),
-                           ('devices', 'devices')):
-            for r in conn.execute(
-                    f"SELECT owner_id, COUNT(*) AS n FROM {table} GROUP BY owner_id"):
-                stats.setdefault(r['owner_id'],
-                                 {'images': 0, 'playlists': 0, 'devices': 0})[key] = r['n']
-        conn.close()
+        with managed_db() as conn:
+            for table, key in (('image_order', 'images'),
+                               ('playlists', 'playlists'),
+                               ('devices', 'devices')):
+                for r in conn.execute(
+                        f"SELECT owner_id, COUNT(*) AS n FROM {table} GROUP BY owner_id"):
+                    stats.setdefault(r['owner_id'],
+                                     {'images': 0, 'playlists': 0, 'devices': 0})[key] = r['n']
     except Exception as e:
         logger.error(f"get_user_stats: {e}")
     return stats
@@ -412,10 +418,9 @@ def get_user_stats():
 
 def list_users():
     try:
-        conn = get_db()
-        rows = conn.execute("SELECT id, username, is_admin, created_at FROM users ORDER BY id").fetchall()
-        conn.close()
-        return [dict(r) for r in rows]
+        with managed_db() as conn:
+            rows = conn.execute("SELECT id, username, is_admin, created_at FROM users ORDER BY id").fetchall()
+            return [dict(r) for r in rows]
     except Exception as e:
         logger.error(f"list_users: {e}"); return []
 
@@ -423,25 +428,22 @@ def list_users():
 def create_user(username, password, is_admin=False):
     from werkzeug.security import generate_password_hash
     try:
-        conn = get_db()
-        code = _generate_unique_friend_code(conn)
-        c = conn.execute("INSERT INTO users (username, password_hash, is_admin, friend_code) VALUES (?,?,?,?)",
-                          (username, generate_password_hash(password), 1 if is_admin else 0, code))
-        uid = c.lastrowid
-        conn.commit(); conn.close()
-        return uid
+        with managed_db() as conn:
+            code = _generate_unique_friend_code(conn)
+            c = conn.execute("INSERT INTO users (username, password_hash, is_admin, friend_code) VALUES (?,?,?,?)",
+                              (username, generate_password_hash(password), 1 if is_admin else 0, code))
+            uid = c.lastrowid
+            conn.commit()
+            return uid
     except sqlite3.IntegrityError:
         return None
-    finally:
-        try: conn.close()
-        except Exception: pass
 
 
 def delete_user(user_id):
     try:
-        conn = get_db()
-        conn.execute("DELETE FROM users WHERE id=?", (user_id,))
-        conn.commit(); conn.close()
+        with managed_db() as conn:
+            conn.execute("DELETE FROM users WHERE id=?", (user_id,))
+            conn.commit()
     except Exception as e:
         logger.error(f"delete_user({user_id}): {e}")
 
@@ -452,30 +454,26 @@ def delete_user(user_id):
 
 def add_friend_by_code(user_id, code):
     try:
-        conn = get_db()
-        # Find friend
-        friend = conn.execute("SELECT id, username FROM users WHERE friend_code=?", (code.strip().upper(),)).fetchone()
-        if not friend:
-            conn.close()
-            return False, "Friend code not found"
-        
-        friend_id = friend['id']
-        if friend_id == user_id:
-            conn.close()
-            return False, "You cannot add yourself as a friend"
-        
-        # Check if already friends
-        row = conn.execute("SELECT 1 FROM friendships WHERE user_id1=? AND user_id2=?", (user_id, friend_id)).fetchone()
-        if row:
-            conn.close()
-            return True, friend['username'] # Already friends
-        
-        # Insert mutual friendship
-        conn.execute("INSERT OR IGNORE INTO friendships (user_id1, user_id2) VALUES (?, ?)", (user_id, friend_id))
-        conn.execute("INSERT OR IGNORE INTO friendships (user_id1, user_id2) VALUES (?, ?)", (friend_id, user_id))
-        conn.commit()
-        conn.close()
-        return True, friend['username']
+        with managed_db() as conn:
+            # Find friend
+            friend = conn.execute("SELECT id, username FROM users WHERE friend_code=?", (code.strip().upper(),)).fetchone()
+            if not friend:
+                return False, "Friend code not found"
+
+            friend_id = friend['id']
+            if friend_id == user_id:
+                return False, "You cannot add yourself as a friend"
+
+            # Check if already friends
+            row = conn.execute("SELECT 1 FROM friendships WHERE user_id1=? AND user_id2=?", (user_id, friend_id)).fetchone()
+            if row:
+                return True, friend['username'] # Already friends
+
+            # Insert mutual friendship
+            conn.execute("INSERT OR IGNORE INTO friendships (user_id1, user_id2) VALUES (?, ?)", (user_id, friend_id))
+            conn.execute("INSERT OR IGNORE INTO friendships (user_id1, user_id2) VALUES (?, ?)", (friend_id, user_id))
+            conn.commit()
+            return True, friend['username']
     except Exception as e:
         logger.error(f"add_friend_by_code: {e}")
         return False, "Database error"
@@ -483,28 +481,25 @@ def add_friend_by_code(user_id, code):
 
 def get_friends(user_id):
     try:
-        conn = get_db()
-        rows = conn.execute("""
-            SELECT u.id, u.username, u.friend_code 
-            FROM users u
-            JOIN friendships f ON u.id = f.user_id2
-            WHERE f.user_id1 = ?
-            ORDER BY u.username
-        """, (user_id,)).fetchall()
-        result = [dict(r) for r in rows]
-        conn.close()
-        return result
+        with managed_db() as conn:
+            rows = conn.execute("""
+                SELECT u.id, u.username, u.friend_code
+                FROM users u
+                JOIN friendships f ON u.id = f.user_id2
+                WHERE f.user_id1 = ?
+                ORDER BY u.username
+            """, (user_id,)).fetchall()
+            return [dict(r) for r in rows]
     except Exception as e:
         logger.error(f"get_friends: {e}"); return []
 
 
 def share_playlist(playlist_id, friend_user_id):
     try:
-        conn = get_db()
-        conn.execute("INSERT OR IGNORE INTO playlist_shares (playlist_id, user_id) VALUES (?, ?)", (playlist_id, friend_user_id))
-        conn.commit()
-        conn.close()
-        return True
+        with managed_db() as conn:
+            conn.execute("INSERT OR IGNORE INTO playlist_shares (playlist_id, user_id) VALUES (?, ?)", (playlist_id, friend_user_id))
+            conn.commit()
+            return True
     except Exception as e:
         logger.error(f"share_playlist({playlist_id}, {friend_user_id}): {e}")
         return False
@@ -512,11 +507,10 @@ def share_playlist(playlist_id, friend_user_id):
 
 def unshare_playlist(playlist_id, friend_user_id):
     try:
-        conn = get_db()
-        conn.execute("DELETE FROM playlist_shares WHERE playlist_id=? AND user_id=?", (playlist_id, friend_user_id))
-        conn.commit()
-        conn.close()
-        return True
+        with managed_db() as conn:
+            conn.execute("DELETE FROM playlist_shares WHERE playlist_id=? AND user_id=?", (playlist_id, friend_user_id))
+            conn.commit()
+            return True
     except Exception as e:
         logger.error(f"unshare_playlist({playlist_id}, {friend_user_id}): {e}")
         return False
@@ -524,17 +518,15 @@ def unshare_playlist(playlist_id, friend_user_id):
 
 def get_playlist_collaborators(playlist_id):
     try:
-        conn = get_db()
-        rows = conn.execute("""
-            SELECT u.id, u.username 
-            FROM users u
-            JOIN playlist_shares ps ON u.id = ps.user_id
-            WHERE ps.playlist_id = ?
-            ORDER BY u.username
-        """, (playlist_id,)).fetchall()
-        result = [dict(r) for r in rows]
-        conn.close()
-        return result
+        with managed_db() as conn:
+            rows = conn.execute("""
+                SELECT u.id, u.username
+                FROM users u
+                JOIN playlist_shares ps ON u.id = ps.user_id
+                WHERE ps.playlist_id = ?
+                ORDER BY u.username
+            """, (playlist_id,)).fetchall()
+            return [dict(r) for r in rows]
     except Exception as e:
         logger.error(f"get_playlist_collaborators({playlist_id}): {e}"); return []
 
@@ -543,13 +535,12 @@ def is_playlist_accessible(playlist_id, user_id):
     if playlist_id is None:
         return False
     try:
-        conn = get_db()
-        row = conn.execute("""
-            SELECT 1 FROM playlists 
-            WHERE id = ? AND (owner_id = ? OR id IN (SELECT playlist_id FROM playlist_shares WHERE user_id = ?))
-        """, (int(playlist_id), user_id, user_id)).fetchone()
-        conn.close()
-        return row is not None
+        with managed_db() as conn:
+            row = conn.execute("""
+                SELECT 1 FROM playlists
+                WHERE id = ? AND (owner_id = ? OR id IN (SELECT playlist_id FROM playlist_shares WHERE user_id = ?))
+            """, (int(playlist_id), user_id, user_id)).fetchone()
+            return row is not None
     except Exception as e:
         logger.error(f"is_playlist_accessible({playlist_id}, {user_id}): {e}")
         return False
@@ -561,19 +552,18 @@ def is_playlist_accessible(playlist_id, user_id):
 
 def get_global_setting(key, default=None):
     try:
-        conn = get_db()
-        row = conn.execute("SELECT value FROM global_settings WHERE key=?", (key,)).fetchone()
-        conn.close()
-        return row['value'] if row else default
+        with managed_db() as conn:
+            row = conn.execute("SELECT value FROM global_settings WHERE key=?", (key,)).fetchone()
+            return row['value'] if row else default
     except Exception:
         return default
 
 
 def set_global_setting(key, value):
     try:
-        conn = get_db()
-        conn.execute("INSERT OR REPLACE INTO global_settings VALUES (?,?)", (key, str(value)))
-        conn.commit(); conn.close()
+        with managed_db() as conn:
+            conn.execute("INSERT OR REPLACE INTO global_settings VALUES (?,?)", (key, str(value)))
+            conn.commit()
     except Exception as e:
         logger.error(f"set_global_setting({key}): {e}")
 
@@ -585,21 +575,20 @@ def set_global_setting(key, value):
 def load_playlists(owner_id=None):
     owner_id = _get_owner_id(owner_id)
     try:
-        conn = get_db()
-        rows = conn.execute("""
-            SELECT p.id, p.name, p.shuffle, p.sync, p.sleep_interval, p.owner_id, u.username as owner_name, p.resolution
-            FROM playlists p
-            JOIN users u ON p.owner_id = u.id
-            WHERE p.owner_id = ? OR p.id IN (SELECT playlist_id FROM playlist_shares WHERE user_id = ?)
-            ORDER BY p.id
-        """, (owner_id, owner_id)).fetchall()
-        result = []
-        for r in rows:
-            d = dict(r)
-            d['is_owner'] = (d['owner_id'] == owner_id)
-            result.append(d)
-        conn.close()
-        return result
+        with managed_db() as conn:
+            rows = conn.execute("""
+                SELECT p.id, p.name, p.shuffle, p.sync, p.sleep_interval, p.owner_id, u.username as owner_name, p.resolution
+                FROM playlists p
+                JOIN users u ON p.owner_id = u.id
+                WHERE p.owner_id = ? OR p.id IN (SELECT playlist_id FROM playlist_shares WHERE user_id = ?)
+                ORDER BY p.id
+            """, (owner_id, owner_id)).fetchall()
+            result = []
+            for r in rows:
+                d = dict(r)
+                d['is_owner'] = (d['owner_id'] == owner_id)
+                result.append(d)
+            return result
     except Exception as e:
         logger.error(f"load_playlists: {e}"); return []
 
@@ -608,15 +597,14 @@ def load_playlist(playlist_id):
     if playlist_id is None:
         return None
     try:
-        conn = get_db()
-        row = conn.execute("""
-            SELECT p.id, p.name, p.shuffle, p.sync, p.sleep_interval, p.owner_id, u.username as owner_name, p.resolution
-            FROM playlists p
-            JOIN users u ON p.owner_id = u.id
-            WHERE p.id = ?
-        """, (int(playlist_id),)).fetchone()
-        conn.close()
-        return dict(row) if row else None
+        with managed_db() as conn:
+            row = conn.execute("""
+                SELECT p.id, p.name, p.shuffle, p.sync, p.sleep_interval, p.owner_id, u.username as owner_name, p.resolution
+                FROM playlists p
+                JOIN users u ON p.owner_id = u.id
+                WHERE p.id = ?
+            """, (int(playlist_id),)).fetchone()
+            return dict(row) if row else None
     except Exception as e:
         logger.error(f"load_playlist({playlist_id}): {e}"); return None
 
@@ -624,12 +612,12 @@ def load_playlist(playlist_id):
 def create_playlist(name, shuffle=False, sync=True, sleep_interval=900, owner_id=None):
     owner_id = _get_owner_id(owner_id)
     try:
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("INSERT INTO playlists (name,shuffle,sync,sleep_interval,owner_id) VALUES (?,?,?,?,?)",
-                  (name, 1 if shuffle else 0, 1 if sync else 0, int(sleep_interval), owner_id))
-        pid = c.lastrowid; conn.commit(); conn.close()
-        return pid
+        with managed_db() as conn:
+            c = conn.cursor()
+            c.execute("INSERT INTO playlists (name,shuffle,sync,sleep_interval,owner_id) VALUES (?,?,?,?,?)",
+                      (name, 1 if shuffle else 0, 1 if sync else 0, int(sleep_interval), owner_id))
+            pid = c.lastrowid; conn.commit()
+            return pid
     except Exception as e:
         logger.error(f"create_playlist: {e}"); return None
 
@@ -640,89 +628,86 @@ def update_playlist(playlist_id, **kwargs):
     if not fields:
         return
     try:
-        conn = get_db()
-        for col, val in fields.items():
-            conn.execute(f"UPDATE playlists SET {col}=? WHERE id=?", (val, int(playlist_id)))
-        conn.commit(); conn.close()
+        with managed_db() as conn:
+            for col, val in fields.items():
+                conn.execute(f"UPDATE playlists SET {col}=? WHERE id=?", (val, int(playlist_id)))
+            conn.commit()
     except Exception as e:
         logger.error(f"update_playlist({playlist_id}): {e}")
 
 
 def delete_playlist(playlist_id):
     try:
-        conn = get_db()
-        conn.execute("DELETE FROM playlists WHERE id=?", (int(playlist_id),))
-        conn.execute("UPDATE playlist_devices SET playlist_id=NULL WHERE playlist_id=?", (int(playlist_id),))
-        conn.commit(); conn.close()
+        with managed_db() as conn:
+            conn.execute("DELETE FROM playlists WHERE id=?", (int(playlist_id),))
+            conn.execute("UPDATE playlist_devices SET playlist_id=NULL WHERE playlist_id=?", (int(playlist_id),))
+            conn.commit()
     except Exception as e:
         logger.error(f"delete_playlist({playlist_id}): {e}")
 
 
 def get_playlist_images(playlist_id):
     try:
-        conn = get_db()
-        rows = conn.execute(
-            "SELECT base FROM playlist_images WHERE playlist_id=? ORDER BY sort_order",
-            (int(playlist_id),)).fetchall()
-        conn.close()
-        return [r['base'] for r in rows]
+        with managed_db() as conn:
+            rows = conn.execute(
+                "SELECT base FROM playlist_images WHERE playlist_id=? ORDER BY sort_order",
+                (int(playlist_id),)).fetchall()
+            return [r['base'] for r in rows]
     except Exception as e:
         logger.error(f"get_playlist_images({playlist_id}): {e}"); return []
 
 
 def add_playlist_image(playlist_id, base):
     try:
-        conn = get_db()
-        row = conn.execute(
-            "SELECT COALESCE(MAX(sort_order),0)+1 AS next FROM playlist_images WHERE playlist_id=?",
-            (int(playlist_id),)).fetchone()
-        next_order = row['next'] if row else 0
-        conn.execute("INSERT OR IGNORE INTO playlist_images VALUES (?,?,?)",
-                     (int(playlist_id), base, next_order))
-        conn.commit(); conn.close()
+        with managed_db() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(MAX(sort_order),0)+1 AS next FROM playlist_images WHERE playlist_id=?",
+                (int(playlist_id),)).fetchone()
+            next_order = row['next'] if row else 0
+            conn.execute("INSERT OR IGNORE INTO playlist_images VALUES (?,?,?)",
+                         (int(playlist_id), base, next_order))
+            conn.commit()
     except Exception as e:
         logger.error(f"add_playlist_image: {e}")
 
 
 def remove_playlist_image(playlist_id, base):
     try:
-        conn = get_db()
-        conn.execute("DELETE FROM playlist_images WHERE playlist_id=? AND base=?",
-                     (int(playlist_id), base))
-        conn.commit(); conn.close()
+        with managed_db() as conn:
+            conn.execute("DELETE FROM playlist_images WHERE playlist_id=? AND base=?",
+                         (int(playlist_id), base))
+            conn.commit()
     except Exception as e:
         logger.error(f"remove_playlist_image: {e}")
 
 
 def reorder_playlist_images(playlist_id, bases):
     try:
-        conn = get_db()
-        for i, base in enumerate(bases):
-            conn.execute("UPDATE playlist_images SET sort_order=? WHERE playlist_id=? AND base=?",
-                         (i, int(playlist_id), base))
-        conn.commit(); conn.close()
+        with managed_db() as conn:
+            for i, base in enumerate(bases):
+                conn.execute("UPDATE playlist_images SET sort_order=? WHERE playlist_id=? AND base=?",
+                             (i, int(playlist_id), base))
+            conn.commit()
     except Exception as e:
         logger.error(f"reorder_playlist_images: {e}")
 
 
 def get_playlist_devices(playlist_id):
     try:
-        conn = get_db()
-        rows = conn.execute("SELECT mac FROM playlist_devices WHERE playlist_id=?",
-                            (int(playlist_id),)).fetchall()
-        conn.close()
-        return [r['mac'] for r in rows]
+        with managed_db() as conn:
+            rows = conn.execute("SELECT mac FROM playlist_devices WHERE playlist_id=?",
+                                (int(playlist_id),)).fetchall()
+            return [r['mac'] for r in rows]
     except Exception as e:
         logger.error(f"get_playlist_devices: {e}"); return []
 
 
 def get_device_playlist_id(mac):
     try:
-        conn = get_db()
-        row = conn.execute("SELECT playlist_id FROM playlist_devices WHERE mac=?",
-                           (mac.lower(),)).fetchone()
-        conn.close()
-        return row['playlist_id'] if row else None
+        with managed_db() as conn:
+            row = conn.execute("SELECT playlist_id FROM playlist_devices WHERE mac=?",
+                               (mac.lower(),)).fetchone()
+            return row['playlist_id'] if row else None
     except Exception as e:
         logger.error(f"get_device_playlist_id: {e}"); return None
 
@@ -730,13 +715,13 @@ def get_device_playlist_id(mac):
 def set_device_playlist(mac, playlist_id):
     """Assign device to a playlist (or None to unassign)."""
     try:
-        conn = get_db()
-        if playlist_id is None:
-            conn.execute("DELETE FROM playlist_devices WHERE mac=?", (mac.lower(),))
-        else:
-            conn.execute("INSERT OR REPLACE INTO playlist_devices VALUES (?,?)",
-                         (mac.lower(), int(playlist_id)))
-        conn.commit(); conn.close()
+        with managed_db() as conn:
+            if playlist_id is None:
+                conn.execute("DELETE FROM playlist_devices WHERE mac=?", (mac.lower(),))
+            else:
+                conn.execute("INSERT OR REPLACE INTO playlist_devices VALUES (?,?)",
+                             (mac.lower(), int(playlist_id)))
+            conn.commit()
     except Exception as e:
         logger.error(f"set_device_playlist: {e}")
 
@@ -749,25 +734,24 @@ def load_config(owner_id=None):
     owner_id = _get_owner_id(owner_id)
     defaults = {"wake_timeout": 45, "devices": []}
     try:
-        conn = get_db()
-        row = conn.execute("SELECT value FROM global_settings WHERE key='wake_timeout'").fetchone()
-        if row:
-            defaults['wake_timeout'] = int(row['value'])
-        rows = conn.execute(
-            "SELECT mac,name,orientation,debug,mode,shuffle,flip_l,flip_p,images_json,hw_profile,fw_version,show_fw,repair_until FROM devices WHERE owner_id=?", (owner_id,)
-        ).fetchall()
-        defaults['devices'] = [{
-            "mac": r['mac'].lower(), "name": r['name'],
-            "orientation": r['orientation'], "debug": bool(r['debug']),
-            "mode": r['mode'], "shuffle": bool(r['shuffle']),
-            "flip_l": bool(r['flip_l']), "flip_p": bool(r['flip_p']),
-            "images": json.loads(r['images_json'] or '[]'),
-            "hw_profile": r['hw_profile'] or '',
-            "fw_version": r['fw_version'] or '',
-            "show_fw": bool(r['show_fw']),
-            "repair_until": int(r['repair_until']) if r['repair_until'] is not None else None,
-        } for r in rows]
-        conn.close()
+        with managed_db() as conn:
+            row = conn.execute("SELECT value FROM global_settings WHERE key='wake_timeout'").fetchone()
+            if row:
+                defaults['wake_timeout'] = int(row['value'])
+            rows = conn.execute(
+                "SELECT mac,name,orientation,debug,mode,shuffle,flip_l,flip_p,images_json,hw_profile,fw_version,show_fw,repair_until FROM devices WHERE owner_id=?", (owner_id,)
+            ).fetchall()
+            defaults['devices'] = [{
+                "mac": r['mac'].lower(), "name": r['name'],
+                "orientation": r['orientation'], "debug": bool(r['debug']),
+                "mode": r['mode'], "shuffle": bool(r['shuffle']),
+                "flip_l": bool(r['flip_l']), "flip_p": bool(r['flip_p']),
+                "images": json.loads(r['images_json'] or '[]'),
+                "hw_profile": r['hw_profile'] or '',
+                "fw_version": r['fw_version'] or '',
+                "show_fw": bool(r['show_fw']),
+                "repair_until": int(r['repair_until']) if r['repair_until'] is not None else None,
+            } for r in rows]
     except Exception as e:
         logger.error(f"load_config: {e}")
     return defaults
@@ -776,26 +760,26 @@ def load_config(owner_id=None):
 def save_config(cfg, owner_id=None):
     owner_id = _get_owner_id(owner_id)
     try:
-        conn = get_db()
-        conn.execute("INSERT OR REPLACE INTO global_settings VALUES ('wake_timeout',?)",
-                     (str(cfg.get('wake_timeout', 45)),))
-        conn.execute("DELETE FROM devices WHERE owner_id=?", (owner_id,))
-        for dev in cfg.get('devices', []):
-            conn.execute("""INSERT OR REPLACE INTO devices
-                (mac,name,orientation,debug,mode,shuffle,flip_l,flip_p,images_json,hw_profile,fw_version,show_fw,repair_until,owner_id)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
-                dev.get('mac','').lower(), dev.get('name',''),
-                dev.get('orientation','landscape'), 1 if dev.get('debug') else 0,
-                dev.get('mode','group'), 1 if dev.get('shuffle') else 0,
-                1 if dev.get('flip_l') else 0, 1 if dev.get('flip_p') else 0,
-                json.dumps(dev.get('images', [])),
-                dev.get('hw_profile', ''),
-                dev.get('fw_version') or None,
-                1 if dev.get('show_fw') else 0,
-                dev.get('repair_until') or None,
-                owner_id))
-        conn.commit(); conn.close()
-        return True
+        with managed_db() as conn:
+            conn.execute("INSERT OR REPLACE INTO global_settings VALUES ('wake_timeout',?)",
+                         (str(cfg.get('wake_timeout', 45)),))
+            conn.execute("DELETE FROM devices WHERE owner_id=?", (owner_id,))
+            for dev in cfg.get('devices', []):
+                conn.execute("""INSERT OR REPLACE INTO devices
+                    (mac,name,orientation,debug,mode,shuffle,flip_l,flip_p,images_json,hw_profile,fw_version,show_fw,repair_until,owner_id)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+                    dev.get('mac','').lower(), dev.get('name',''),
+                    dev.get('orientation','landscape'), 1 if dev.get('debug') else 0,
+                    dev.get('mode','group'), 1 if dev.get('shuffle') else 0,
+                    1 if dev.get('flip_l') else 0, 1 if dev.get('flip_p') else 0,
+                    json.dumps(dev.get('images', [])),
+                    dev.get('hw_profile', ''),
+                    dev.get('fw_version') or None,
+                    1 if dev.get('show_fw') else 0,
+                    dev.get('repair_until') or None,
+                    owner_id))
+            conn.commit()
+            return True
     except Exception as e:
         logger.error(f"save_config: {e}"); return False
 
@@ -803,11 +787,10 @@ def save_config(cfg, owner_id=None):
 def get_device_owner_id(mac):
     """Return the owner_id of an existing device row, or None if unknown."""
     try:
-        conn = get_db()
-        row = conn.execute("SELECT owner_id FROM devices WHERE mac=?",
-                           (mac.lower(),)).fetchone()
-        conn.close()
-        return row['owner_id'] if row else None
+        with managed_db() as conn:
+            row = conn.execute("SELECT owner_id FROM devices WHERE mac=?",
+                               (mac.lower(),)).fetchone()
+            return row['owner_id'] if row else None
     except Exception as e:
         logger.error(f"get_device_owner_id({mac}): {e}")
         return None
@@ -817,15 +800,14 @@ def update_device_fw_version(mac, fw_version):
     """Persist fw_version for a device. Returns True if the stored value changed."""
     mac = mac.lower()
     try:
-        conn = get_db()
-        row = conn.execute("SELECT fw_version FROM devices WHERE mac=?", (mac,)).fetchone()
-        old = row['fw_version'] if row else None
-        changed = (old != fw_version)
-        if changed:
-            conn.execute("UPDATE devices SET fw_version=? WHERE mac=?", (fw_version, mac))
-            conn.commit()
-        conn.close()
-        return changed
+        with managed_db() as conn:
+            row = conn.execute("SELECT fw_version FROM devices WHERE mac=?", (mac,)).fetchone()
+            old = row['fw_version'] if row else None
+            changed = (old != fw_version)
+            if changed:
+                conn.execute("UPDATE devices SET fw_version=? WHERE mac=?", (fw_version, mac))
+                conn.commit()
+            return changed
     except Exception as e:
         logger.error(f"update_device_fw_version({mac}): {e}")
         return False
@@ -835,15 +817,14 @@ def update_device_hw_profile(mac, hw_profile):
     """Persist hw_profile for a device.  Returns True if the stored value changed."""
     mac = mac.lower()
     try:
-        conn = get_db()
-        row = conn.execute("SELECT hw_profile FROM devices WHERE mac=?", (mac,)).fetchone()
-        old = row['hw_profile'] if row else None
-        changed = (old != hw_profile)
-        if changed:
-            conn.execute("UPDATE devices SET hw_profile=? WHERE mac=?", (hw_profile, mac))
-            conn.commit()
-        conn.close()
-        return changed
+        with managed_db() as conn:
+            row = conn.execute("SELECT hw_profile FROM devices WHERE mac=?", (mac,)).fetchone()
+            old = row['hw_profile'] if row else None
+            changed = (old != hw_profile)
+            if changed:
+                conn.execute("UPDATE devices SET hw_profile=? WHERE mac=?", (hw_profile, mac))
+                conn.commit()
+            return changed
     except Exception as e:
         logger.error(f"update_device_hw_profile({mac}): {e}")
         return False
@@ -853,10 +834,9 @@ def get_device_resolution(mac):
     """Return the stored 'WxH' resolution for *mac*, or None if not set."""
     mac = mac.lower()
     try:
-        conn = get_db()
-        row = conn.execute("SELECT resolution FROM devices WHERE mac=?", (mac,)).fetchone()
-        conn.close()
-        return row['resolution'] if row else None
+        with managed_db() as conn:
+            row = conn.execute("SELECT resolution FROM devices WHERE mac=?", (mac,)).fetchone()
+            return row['resolution'] if row else None
     except Exception as e:
         logger.error(f"get_device_resolution({mac}): {e}")
         return None
@@ -866,15 +846,14 @@ def update_device_resolution(mac, resolution):
     """Persist the 'WxH' resolution string for a device.  Returns True if changed."""
     mac = mac.lower()
     try:
-        conn = get_db()
-        row = conn.execute("SELECT resolution FROM devices WHERE mac=?", (mac,)).fetchone()
-        old = row['resolution'] if row else None
-        changed = (old != resolution)
-        if changed:
-            conn.execute("UPDATE devices SET resolution=? WHERE mac=?", (resolution, mac))
-            conn.commit()
-        conn.close()
-        return changed
+        with managed_db() as conn:
+            row = conn.execute("SELECT resolution FROM devices WHERE mac=?", (mac,)).fetchone()
+            old = row['resolution'] if row else None
+            changed = (old != resolution)
+            if changed:
+                conn.execute("UPDATE devices SET resolution=? WHERE mac=?", (resolution, mac))
+                conn.commit()
+            return changed
     except Exception as e:
         logger.error(f"update_device_resolution({mac}): {e}")
         return False
@@ -883,11 +862,10 @@ def update_device_resolution(mac, resolution):
 def get_playlist_resolution(playlist_id):
     """Return the locked 'WxH' resolution for a playlist, or None if unlocked."""
     try:
-        conn = get_db()
-        row = conn.execute("SELECT resolution FROM playlists WHERE id=?",
-                           (int(playlist_id),)).fetchone()
-        conn.close()
-        return row['resolution'] if row else None
+        with managed_db() as conn:
+            row = conn.execute("SELECT resolution FROM playlists WHERE id=?",
+                               (int(playlist_id),)).fetchone()
+            return row['resolution'] if row else None
     except Exception as e:
         logger.error(f"get_playlist_resolution({playlist_id}): {e}")
         return None
@@ -896,10 +874,10 @@ def get_playlist_resolution(playlist_id):
 def set_playlist_resolution(playlist_id, resolution):
     """Lock *playlist_id* to *resolution* ('WxH' string)."""
     try:
-        conn = get_db()
-        conn.execute("UPDATE playlists SET resolution=? WHERE id=?",
-                     (resolution, int(playlist_id)))
-        conn.commit(); conn.close()
+        with managed_db() as conn:
+            conn.execute("UPDATE playlists SET resolution=? WHERE id=?",
+                         (resolution, int(playlist_id)))
+            conn.commit()
     except Exception as e:
         logger.error(f"set_playlist_resolution({playlist_id}): {e}")
 
@@ -907,10 +885,10 @@ def set_playlist_resolution(playlist_id, resolution):
 def clear_playlist_resolution(playlist_id):
     """Clear the resolution lock for *playlist_id* (unlocks it for new assignments)."""
     try:
-        conn = get_db()
-        conn.execute("UPDATE playlists SET resolution=NULL WHERE id=?",
-                     (int(playlist_id),))
-        conn.commit(); conn.close()
+        with managed_db() as conn:
+            conn.execute("UPDATE playlists SET resolution=NULL WHERE id=?",
+                         (int(playlist_id),))
+            conn.commit()
     except Exception as e:
         logger.error(f"clear_playlist_resolution({playlist_id}): {e}")
 
@@ -918,12 +896,11 @@ def clear_playlist_resolution(playlist_id):
 def get_playlists_for_image(base):
     """Return list of playlist_ids that contain this image base."""
     try:
-        conn = get_db()
-        rows = conn.execute(
-            "SELECT DISTINCT playlist_id FROM playlist_images WHERE base=?", (base,)
-        ).fetchall()
-        conn.close()
-        return [r['playlist_id'] for r in rows]
+        with managed_db() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT playlist_id FROM playlist_images WHERE base=?", (base,)
+            ).fetchall()
+            return [r['playlist_id'] for r in rows]
     except Exception as e:
         logger.error(f"get_playlists_for_image({base}): {e}"); return []
 
@@ -935,10 +912,9 @@ def get_playlists_for_image(base):
 def load_crops():
     crops = {}
     try:
-        conn = get_db()
-        for r in conn.execute("SELECT base,l,p FROM crops").fetchall():
-            crops[r['base']] = {"l": r['l'], "p": r['p']}
-        conn.close()
+        with managed_db() as conn:
+            for r in conn.execute("SELECT base,l,p FROM crops").fetchall():
+                crops[r['base']] = {"l": r['l'], "p": r['p']}
     except Exception as e:
         logger.error(f"load_crops: {e}")
     return crops
@@ -946,11 +922,11 @@ def load_crops():
 
 def save_crops(crops):
     try:
-        conn = get_db()
-        for base, val in crops.items():
-            conn.execute("INSERT OR REPLACE INTO crops VALUES (?,?,?)",
-                         (base, val.get('l', 0.5), val.get('p', 0.5)))
-        conn.commit(); conn.close()
+        with managed_db() as conn:
+            for base, val in crops.items():
+                conn.execute("INSERT OR REPLACE INTO crops VALUES (?,?,?)",
+                             (base, val.get('l', 0.5), val.get('p', 0.5)))
+            conn.commit()
     except Exception as e:
         logger.error(f"save_crops: {e}")
 
@@ -962,10 +938,9 @@ def save_crops(crops):
 def get_image_edits(base):
     """Return a dict of edit params for base, or None if no edits saved."""
     try:
-        conn = get_db()
-        row = conn.execute("SELECT * FROM image_edits WHERE base=?", (base,)).fetchone()
-        conn.close()
-        return dict(row) if row else None
+        with managed_db() as conn:
+            row = conn.execute("SELECT * FROM image_edits WHERE base=?", (base,)).fetchone()
+            return dict(row) if row else None
     except Exception as e:
         logger.error(f"get_image_edits({base}): {e}")
         return None
@@ -974,25 +949,25 @@ def get_image_edits(base):
 def save_image_edits(base, params):
     """Persist non-destructive edit params for base."""
     try:
-        conn = get_db()
-        crop_l = params.get('crop_l') or {}
-        crop_p = params.get('crop_p') or {}
-        conn.execute("""INSERT OR REPLACE INTO image_edits
-            (base, crop_l_x, crop_l_y, crop_l_w, crop_l_h,
-             crop_p_x, crop_p_y, crop_p_w, crop_p_h,
-             hue_shift, saturation, value_adj, r_gain, g_gain, b_gain, bg_color,
-             rotate)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
-            base,
-            crop_l.get('x'), crop_l.get('y'), crop_l.get('w'), crop_l.get('h'),
-            crop_p.get('x'), crop_p.get('y'), crop_p.get('w'), crop_p.get('h'),
-            params.get('hue_shift', 0), params.get('saturation', 1),
-            params.get('value_adj', 1), params.get('r_gain', 1),
-            params.get('g_gain', 1), params.get('b_gain', 1),
-            params.get('bg_color', '#ffffff'),
-            int(params.get('rotate', 0) or 0) % 360,
-        ))
-        conn.commit(); conn.close()
+        with managed_db() as conn:
+            crop_l = params.get('crop_l') or {}
+            crop_p = params.get('crop_p') or {}
+            conn.execute("""INSERT OR REPLACE INTO image_edits
+                (base, crop_l_x, crop_l_y, crop_l_w, crop_l_h,
+                 crop_p_x, crop_p_y, crop_p_w, crop_p_h,
+                 hue_shift, saturation, value_adj, r_gain, g_gain, b_gain, bg_color,
+                 rotate)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+                base,
+                crop_l.get('x'), crop_l.get('y'), crop_l.get('w'), crop_l.get('h'),
+                crop_p.get('x'), crop_p.get('y'), crop_p.get('w'), crop_p.get('h'),
+                params.get('hue_shift', 0), params.get('saturation', 1),
+                params.get('value_adj', 1), params.get('r_gain', 1),
+                params.get('g_gain', 1), params.get('b_gain', 1),
+                params.get('bg_color', '#ffffff'),
+                int(params.get('rotate', 0) or 0) % 360,
+            ))
+            conn.commit()
     except Exception as e:
         logger.error(f"save_image_edits({base}): {e}")
 
@@ -1010,19 +985,18 @@ def load_state():
         "playlist_last_advance": {}, "device_zip_versions": {},
     }
     try:
-        conn = get_db()
-        for r in conn.execute("SELECT key,value FROM global_settings").fetchall():
-            k, v = r['key'], r['value']
-            if k in ('last_sync_ts', 'last_change_ts'):
-                defaults[k] = int(v)
-            elif k in ('last_seen', 'device_ips', 'device_images', 'redownload',
-                        'queued_image', 'device_indices', 'playlist_indices',
-                        'playlist_last_advance', 'device_zip_versions'):
-                try:
-                    defaults[k] = json.loads(v)
-                except Exception:
-                    pass
-        conn.close()
+        with managed_db() as conn:
+            for r in conn.execute("SELECT key,value FROM global_settings").fetchall():
+                k, v = r['key'], r['value']
+                if k in ('last_sync_ts', 'last_change_ts'):
+                    defaults[k] = int(v)
+                elif k in ('last_seen', 'device_ips', 'device_images', 'redownload',
+                            'queued_image', 'device_indices', 'playlist_indices',
+                            'playlist_last_advance', 'device_zip_versions'):
+                    try:
+                        defaults[k] = json.loads(v)
+                    except Exception:
+                        pass
     except Exception as e:
         logger.error(f"load_state: {e}")
     return defaults
@@ -1030,11 +1004,11 @@ def load_state():
 
 def save_state(state):
     try:
-        conn = get_db()
-        for k, v in state.items():
-            vs = json.dumps(v) if isinstance(v, (dict, list)) else str(v)
-            conn.execute("INSERT OR REPLACE INTO global_settings VALUES (?,?)", (k, vs))
-        conn.commit(); conn.close()
+        with managed_db() as conn:
+            for k, v in state.items():
+                vs = json.dumps(v) if isinstance(v, (dict, list)) else str(v)
+                conn.execute("INSERT OR REPLACE INTO global_settings VALUES (?,?)", (k, vs))
+            conn.commit()
     except Exception as e:
         logger.error(f"save_state: {e}")
 
@@ -1058,23 +1032,22 @@ def load_image_order(owner_id=None):
     owner_id = _get_owner_id(owner_id)
     order = []; initialized = False
     try:
-        conn = get_db()
-        order = [r['base'] for r in conn.execute(
-            "SELECT base FROM image_order WHERE owner_id=? ORDER BY sort_order", (owner_id,)).fetchall()]
-        row = conn.execute(
-            "SELECT value FROM global_settings WHERE key='image_order_initialized'").fetchone()
-        initialized = bool(row and row['value'] == '1')
-        if not order and not initialized:
-            order = sorted([
-                os.path.splitext(f)[0] for f in os.listdir(ORIGINALS_DIR)
-                if os.path.splitext(f)[1].lower() in ALLOWED_EXTENSIONS
-            ])
-            conn.execute("DELETE FROM image_order WHERE owner_id=?", (owner_id,))
-            for idx, base in enumerate(order):
-                conn.execute("INSERT INTO image_order (base, sort_order, owner_id) VALUES (?,?,?)", (base, idx, owner_id))
-            conn.execute("INSERT OR REPLACE INTO global_settings VALUES ('image_order_initialized','1')")
-            conn.commit()
-        conn.close()
+        with managed_db() as conn:
+            order = [r['base'] for r in conn.execute(
+                "SELECT base FROM image_order WHERE owner_id=? ORDER BY sort_order", (owner_id,)).fetchall()]
+            row = conn.execute(
+                "SELECT value FROM global_settings WHERE key='image_order_initialized'").fetchone()
+            initialized = bool(row and row['value'] == '1')
+            if not order and not initialized:
+                order = sorted([
+                    os.path.splitext(f)[0] for f in os.listdir(ORIGINALS_DIR)
+                    if os.path.splitext(f)[1].lower() in ALLOWED_EXTENSIONS
+                ])
+                conn.execute("DELETE FROM image_order WHERE owner_id=?", (owner_id,))
+                for idx, base in enumerate(order):
+                    conn.execute("INSERT INTO image_order (base, sort_order, owner_id) VALUES (?,?,?)", (base, idx, owner_id))
+                conn.execute("INSERT OR REPLACE INTO global_settings VALUES ('image_order_initialized','1')")
+                conn.commit()
     except Exception as e:
         logger.error(f"load_image_order: {e}")
     return order
@@ -1083,12 +1056,12 @@ def load_image_order(owner_id=None):
 def save_image_order(order, owner_id=None):
     owner_id = _get_owner_id(owner_id)
     try:
-        conn = get_db()
-        conn.execute("DELETE FROM image_order WHERE owner_id=?", (owner_id,))
-        for idx, base in enumerate(order):
-            conn.execute("INSERT INTO image_order (base, sort_order, owner_id) VALUES (?,?,?)", (base, idx, owner_id))
-        conn.execute("INSERT OR REPLACE INTO global_settings VALUES ('image_order_initialized','1')")
-        conn.commit(); conn.close()
+        with managed_db() as conn:
+            conn.execute("DELETE FROM image_order WHERE owner_id=?", (owner_id,))
+            for idx, base in enumerate(order):
+                conn.execute("INSERT INTO image_order (base, sort_order, owner_id) VALUES (?,?,?)", (base, idx, owner_id))
+            conn.execute("INSERT OR REPLACE INTO global_settings VALUES ('image_order_initialized','1')")
+            conn.commit()
     except Exception as e:
         logger.error(f"save_image_order: {e}")
 
@@ -1100,16 +1073,15 @@ def save_image_order(order, owner_id=None):
 def load_enabled():
     enabled = {}
     try:
-        conn = get_db()
-        for r in conn.execute("SELECT * FROM enabled").fetchall():
-            cols = r.keys()
-            enabled[r['base']] = {
-                "l": bool(r['l']), "p": bool(r['p']),
-                "title": bool(r['title']) if 'title' in cols else False,
-                "caption_mode": r['caption_mode'] if 'caption_mode' in cols else 'none',
-                "description": r['description'] if 'description' in cols else '',
-            }
-        conn.close()
+        with managed_db() as conn:
+            for r in conn.execute("SELECT * FROM enabled").fetchall():
+                cols = r.keys()
+                enabled[r['base']] = {
+                    "l": bool(r['l']), "p": bool(r['p']),
+                    "title": bool(r['title']) if 'title' in cols else False,
+                    "caption_mode": r['caption_mode'] if 'caption_mode' in cols else 'none',
+                    "description": r['description'] if 'description' in cols else '',
+                }
     except Exception as e:
         logger.error(f"load_enabled: {e}")
     return enabled
@@ -1117,17 +1089,17 @@ def load_enabled():
 
 def save_enabled(enabled):
     try:
-        conn = get_db()
-        for base, val in enabled.items():
-            lv  = val.get('l', True) if isinstance(val, dict) else val
-            pv  = val.get('p', True) if isinstance(val, dict) else val
-            tv  = val.get('title', False) if isinstance(val, dict) else False
-            cm  = val.get('caption_mode', 'none') if isinstance(val, dict) else 'none'
-            dv  = val.get('description', '') if isinstance(val, dict) else ''
-            conn.execute("""INSERT OR REPLACE INTO enabled
-                (base,l,p,title,caption_mode,description) VALUES (?,?,?,?,?,?)""",
-                (base, 1 if lv else 0, 1 if pv else 0, 1 if tv else 0, cm, dv))
-        conn.commit(); conn.close()
+        with managed_db() as conn:
+            for base, val in enabled.items():
+                lv  = val.get('l', True) if isinstance(val, dict) else val
+                pv  = val.get('p', True) if isinstance(val, dict) else val
+                tv  = val.get('title', False) if isinstance(val, dict) else False
+                cm  = val.get('caption_mode', 'none') if isinstance(val, dict) else 'none'
+                dv  = val.get('description', '') if isinstance(val, dict) else ''
+                conn.execute("""INSERT OR REPLACE INTO enabled
+                    (base,l,p,title,caption_mode,description) VALUES (?,?,?,?,?,?)""",
+                    (base, 1 if lv else 0, 1 if pv else 0, 1 if tv else 0, cm, dv))
+            conn.commit()
     except Exception as e:
         logger.error(f"save_enabled: {e}")
 
@@ -1213,27 +1185,26 @@ def get_playlist_settings(playlist_id):
 
 def record_battery(mac, pct):
     try:
-        conn = get_db()
-        conn.execute("INSERT INTO battery_history (mac, ts, pct) VALUES (?,?,?)",
-                     (mac.lower(), int(_time.time()), int(pct)))
-        conn.commit(); conn.close()
+        with managed_db() as conn:
+            conn.execute("INSERT INTO battery_history (mac, ts, pct) VALUES (?,?,?)",
+                         (mac.lower(), int(_time.time()), int(pct)))
+            conn.commit()
     except Exception as e:
         logger.error(f"record_battery({mac}, {pct}): {e}")
 
 
 def get_battery_history(mac, since_ts=None):
     try:
-        conn = get_db()
-        if since_ts is not None:
-            rows = conn.execute(
-                "SELECT ts, pct FROM battery_history WHERE mac=? AND ts>=? ORDER BY ts",
-                (mac.lower(), int(since_ts))).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT ts, pct FROM battery_history WHERE mac=? ORDER BY ts",
-                (mac.lower(),)).fetchall()
-        conn.close()
-        return [{"ts": r["ts"], "pct": r["pct"]} for r in rows]
+        with managed_db() as conn:
+            if since_ts is not None:
+                rows = conn.execute(
+                    "SELECT ts, pct FROM battery_history WHERE mac=? AND ts>=? ORDER BY ts",
+                    (mac.lower(), int(since_ts))).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT ts, pct FROM battery_history WHERE mac=? ORDER BY ts",
+                    (mac.lower(),)).fetchall()
+            return [{"ts": r["ts"], "pct": r["pct"]} for r in rows]
     except Exception as e:
         logger.error(f"get_battery_history({mac}): {e}"); return []
 
@@ -1244,14 +1215,13 @@ def get_latest_battery(macs):
     if not macs:
         return result
     try:
-        conn = get_db()
-        for mac in macs:
-            row = conn.execute(
-                "SELECT ts, pct FROM battery_history WHERE mac=? ORDER BY ts DESC LIMIT 1",
-                (mac.lower(),)).fetchone()
-            if row:
-                result[mac.lower()] = {"pct": row["pct"], "ts": row["ts"]}
-        conn.close()
+        with managed_db() as conn:
+            for mac in macs:
+                row = conn.execute(
+                    "SELECT ts, pct FROM battery_history WHERE mac=? ORDER BY ts DESC LIMIT 1",
+                    (mac.lower(),)).fetchone()
+                if row:
+                    result[mac.lower()] = {"pct": row["pct"], "ts": row["ts"]}
     except Exception as e:
         logger.error(f"get_latest_battery: {e}")
     return result
@@ -1296,11 +1266,11 @@ def create_image(original_filename, owner_id=None):
     owner_id = _get_owner_id(owner_id)
     new_uuid = _uuid_mod.uuid4().hex
     try:
-        conn = get_db()
-        conn.execute("INSERT OR IGNORE INTO images (uuid, original_filename, owner_id) VALUES (?,?,?)",
-                     (new_uuid, original_filename, owner_id))
-        conn.commit(); conn.close()
-        return new_uuid
+        with managed_db() as conn:
+            conn.execute("INSERT OR IGNORE INTO images (uuid, original_filename, owner_id) VALUES (?,?,?)",
+                         (new_uuid, original_filename, owner_id))
+            conn.commit()
+            return new_uuid
     except Exception as e:
         logger.error(f"create_image({original_filename}): {e}")
         return None
@@ -1308,10 +1278,9 @@ def create_image(original_filename, owner_id=None):
 
 def get_image_by_uuid(uuid):
     try:
-        conn = get_db()
-        row = conn.execute("SELECT * FROM images WHERE uuid=?", (uuid,)).fetchone()
-        conn.close()
-        return dict(row) if row else None
+        with managed_db() as conn:
+            row = conn.execute("SELECT * FROM images WHERE uuid=?", (uuid,)).fetchone()
+            return dict(row) if row else None
     except Exception as e:
         logger.error(f"get_image_by_uuid({uuid}): {e}")
         return None
@@ -1320,16 +1289,15 @@ def get_image_by_uuid(uuid):
 def get_image_by_filename(filename, owner_id=None):
     """Look up an image by its exact original_filename."""
     try:
-        conn = get_db()
-        if owner_id is not None:
-            row = conn.execute(
-                "SELECT * FROM images WHERE original_filename=? AND owner_id=?",
-                (filename, owner_id)).fetchone()
-        else:
-            row = conn.execute(
-                "SELECT * FROM images WHERE original_filename=?", (filename,)).fetchone()
-        conn.close()
-        return dict(row) if row else None
+        with managed_db() as conn:
+            if owner_id is not None:
+                row = conn.execute(
+                    "SELECT * FROM images WHERE original_filename=? AND owner_id=?",
+                    (filename, owner_id)).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT * FROM images WHERE original_filename=?", (filename,)).fetchone()
+            return dict(row) if row else None
     except Exception as e:
         logger.error(f"get_image_by_filename({filename}): {e}")
         return None
@@ -1338,17 +1306,16 @@ def get_image_by_filename(filename, owner_id=None):
 def get_image_by_base(base, owner_id=None):
     """Find an images row whose original_filename stem matches *base*."""
     try:
-        conn = get_db()
-        if owner_id is not None:
-            rows = conn.execute(
-                "SELECT * FROM images WHERE owner_id=?", (owner_id,)).fetchall()
-        else:
-            rows = conn.execute("SELECT * FROM images").fetchall()
-        conn.close()
-        for r in rows:
-            if os.path.splitext(r['original_filename'])[0] == base:
-                return dict(r)
-        return None
+        with managed_db() as conn:
+            if owner_id is not None:
+                rows = conn.execute(
+                    "SELECT * FROM images WHERE owner_id=?", (owner_id,)).fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM images").fetchall()
+            for r in rows:
+                if os.path.splitext(r['original_filename'])[0] == base:
+                    return dict(r)
+            return None
     except Exception as e:
         logger.error(f"get_image_by_base({base}): {e}")
         return None
@@ -1357,10 +1324,9 @@ def get_image_by_base(base, owner_id=None):
 def get_images_for_owner(owner_id=None):
     owner_id = _get_owner_id(owner_id)
     try:
-        conn = get_db()
-        rows = conn.execute("SELECT * FROM images WHERE owner_id=?", (owner_id,)).fetchall()
-        conn.close()
-        return [dict(r) for r in rows]
+        with managed_db() as conn:
+            rows = conn.execute("SELECT * FROM images WHERE owner_id=?", (owner_id,)).fetchall()
+            return [dict(r) for r in rows]
     except Exception as e:
         logger.error(f"get_images_for_owner: {e}")
         return []
@@ -1369,18 +1335,18 @@ def get_images_for_owner(owner_id=None):
 def rename_image_record(uuid, new_filename):
     """Update original_filename for an images row (does NOT rename the file)."""
     try:
-        conn = get_db()
-        conn.execute("UPDATE images SET original_filename=? WHERE uuid=?", (new_filename, uuid))
-        conn.commit(); conn.close()
+        with managed_db() as conn:
+            conn.execute("UPDATE images SET original_filename=? WHERE uuid=?", (new_filename, uuid))
+            conn.commit()
     except Exception as e:
         logger.error(f"rename_image_record({uuid}): {e}")
 
 
 def delete_image_record(uuid):
     try:
-        conn = get_db()
-        conn.execute("DELETE FROM images WHERE uuid=?", (uuid,))
-        conn.commit(); conn.close()
+        with managed_db() as conn:
+            conn.execute("DELETE FROM images WHERE uuid=?", (uuid,))
+            conn.commit()
     except Exception as e:
         logger.error(f"delete_image_record({uuid}): {e}")
 
@@ -1406,12 +1372,11 @@ def get_or_create_image(base, owner_id=None):
 def get_playlist_entries(playlist_id):
     """Return all entries for a playlist ordered by position, as list of dicts."""
     try:
-        conn = get_db()
-        rows = conn.execute(
-            "SELECT * FROM playlist_entries WHERE playlist_id=? ORDER BY position",
-            (int(playlist_id),)).fetchall()
-        conn.close()
-        return [dict(r) for r in rows]
+        with managed_db() as conn:
+            rows = conn.execute(
+                "SELECT * FROM playlist_entries WHERE playlist_id=? ORDER BY position",
+                (int(playlist_id),)).fetchall()
+            return [dict(r) for r in rows]
     except Exception as e:
         logger.error(f"get_playlist_entries({playlist_id}): {e}")
         return []
@@ -1419,10 +1384,9 @@ def get_playlist_entries(playlist_id):
 
 def get_playlist_entry(entry_id):
     try:
-        conn = get_db()
-        row = conn.execute("SELECT * FROM playlist_entries WHERE id=?", (int(entry_id),)).fetchone()
-        conn.close()
-        return dict(row) if row else None
+        with managed_db() as conn:
+            row = conn.execute("SELECT * FROM playlist_entries WHERE id=?", (int(entry_id),)).fetchone()
+            return dict(row) if row else None
     except Exception as e:
         logger.error(f"get_playlist_entry({entry_id}): {e}")
         return None
@@ -1431,24 +1395,24 @@ def get_playlist_entry(entry_id):
 def add_playlist_entry(playlist_id, image_uuid, title=None):
     """Insert a new playlist_entry; returns the new entry_id."""
     try:
-        conn = get_db()
-        # Compute unique title within playlist
-        existing_titles = {r['title'] for r in conn.execute(
-            "SELECT title FROM playlist_entries WHERE playlist_id=?", (int(playlist_id),)).fetchall()}
-        base_title = title or 'untitled'
-        safe_title = sanitize_title(base_title, existing_titles)
-        row = conn.execute(
-            "SELECT COALESCE(MAX(position),0)+1 AS next FROM playlist_entries WHERE playlist_id=?",
-            (int(playlist_id),)).fetchone()
-        next_pos = row['next'] if row else 0
-        c = conn.execute(
-            """INSERT INTO playlist_entries
-               (playlist_id, image_uuid, position, title, enabled_l, enabled_p)
-               VALUES (?,?,?,?,1,1)""",
-            (int(playlist_id), image_uuid, next_pos, safe_title))
-        entry_id = c.lastrowid
-        conn.commit(); conn.close()
-        return entry_id
+        with managed_db() as conn:
+            # Compute unique title within playlist
+            existing_titles = {r['title'] for r in conn.execute(
+                "SELECT title FROM playlist_entries WHERE playlist_id=?", (int(playlist_id),)).fetchall()}
+            base_title = title or 'untitled'
+            safe_title = sanitize_title(base_title, existing_titles)
+            row = conn.execute(
+                "SELECT COALESCE(MAX(position),0)+1 AS next FROM playlist_entries WHERE playlist_id=?",
+                (int(playlist_id),)).fetchone()
+            next_pos = row['next'] if row else 0
+            c = conn.execute(
+                """INSERT INTO playlist_entries
+                   (playlist_id, image_uuid, position, title, enabled_l, enabled_p)
+                   VALUES (?,?,?,?,1,1)""",
+                (int(playlist_id), image_uuid, next_pos, safe_title))
+            entry_id = c.lastrowid
+            conn.commit()
+            return entry_id
     except Exception as e:
         logger.error(f"add_playlist_entry({playlist_id}): {e}")
         return None
@@ -1468,10 +1432,10 @@ def update_playlist_entry(entry_id, **kwargs):
     if not fields:
         return
     try:
-        conn = get_db()
-        for col, val in fields.items():
-            conn.execute(f"UPDATE playlist_entries SET {col}=? WHERE id=?", (val, int(entry_id)))
-        conn.commit(); conn.close()
+        with managed_db() as conn:
+            for col, val in fields.items():
+                conn.execute(f"UPDATE playlist_entries SET {col}=? WHERE id=?", (val, int(entry_id)))
+            conn.commit()
     except Exception as e:
         logger.error(f"update_playlist_entry({entry_id}): {e}")
 
@@ -1479,19 +1443,19 @@ def update_playlist_entry(entry_id, **kwargs):
 def rename_playlist_entry(entry_id, new_title):
     """Rename a playlist entry; sanitizes and ensures uniqueness within its playlist."""
     try:
-        conn = get_db()
-        row = conn.execute("SELECT playlist_id FROM playlist_entries WHERE id=?",
-                           (int(entry_id),)).fetchone()
-        if not row:
-            conn.close(); return None
-        pid = row['playlist_id']
-        existing_titles = {r['title'] for r in conn.execute(
-            "SELECT title FROM playlist_entries WHERE playlist_id=? AND id!=?",
-            (pid, int(entry_id))).fetchall()}
-        safe_title = sanitize_title(new_title, existing_titles)
-        conn.execute("UPDATE playlist_entries SET title=? WHERE id=?", (safe_title, int(entry_id)))
-        conn.commit(); conn.close()
-        return safe_title
+        with managed_db() as conn:
+            row = conn.execute("SELECT playlist_id FROM playlist_entries WHERE id=?",
+                               (int(entry_id),)).fetchone()
+            if not row:
+                return None
+            pid = row['playlist_id']
+            existing_titles = {r['title'] for r in conn.execute(
+                "SELECT title FROM playlist_entries WHERE playlist_id=? AND id!=?",
+                (pid, int(entry_id))).fetchall()}
+            safe_title = sanitize_title(new_title, existing_titles)
+            conn.execute("UPDATE playlist_entries SET title=? WHERE id=?", (safe_title, int(entry_id)))
+            conn.commit()
+            return safe_title
     except Exception as e:
         logger.error(f"rename_playlist_entry({entry_id}): {e}")
         return None
@@ -1499,9 +1463,9 @@ def rename_playlist_entry(entry_id, new_title):
 
 def remove_playlist_entry(entry_id):
     try:
-        conn = get_db()
-        conn.execute("DELETE FROM playlist_entries WHERE id=?", (int(entry_id),))
-        conn.commit(); conn.close()
+        with managed_db() as conn:
+            conn.execute("DELETE FROM playlist_entries WHERE id=?", (int(entry_id),))
+            conn.commit()
     except Exception as e:
         logger.error(f"remove_playlist_entry({entry_id}): {e}")
 
@@ -1509,11 +1473,11 @@ def remove_playlist_entry(entry_id):
 def reorder_playlist_entries(playlist_id, entry_ids):
     """Set position of each entry in entry_ids list."""
     try:
-        conn = get_db()
-        for i, eid in enumerate(entry_ids):
-            conn.execute("UPDATE playlist_entries SET position=? WHERE id=? AND playlist_id=?",
-                         (i, int(eid), int(playlist_id)))
-        conn.commit(); conn.close()
+        with managed_db() as conn:
+            for i, eid in enumerate(entry_ids):
+                conn.execute("UPDATE playlist_entries SET position=? WHERE id=? AND playlist_id=?",
+                             (i, int(eid), int(playlist_id)))
+            conn.commit()
     except Exception as e:
         logger.error(f"reorder_playlist_entries({playlist_id}): {e}")
 
@@ -1556,20 +1520,19 @@ def get_device_active_entries(mac, orientation):
         return []
     orient_col = 'enabled_l' if orientation == 'landscape' else 'enabled_p'
     try:
-        conn = get_db()
-        rows = conn.execute(
-            f"""SELECT pe.*, i.original_filename
-                FROM playlist_entries pe
-                JOIN images i ON pe.image_uuid = i.uuid
-                WHERE pe.playlist_id=? AND pe.{orient_col}=1
-                ORDER BY pe.position""",
-            (int(pid),)).fetchall()
-        conn.close()
-        result = []
-        for r in rows:
-            if os.path.exists(os.path.join(ORIGINALS_DIR, r['original_filename'])):
-                result.append(dict(r))
-        return result
+        with managed_db() as conn:
+            rows = conn.execute(
+                f"""SELECT pe.*, i.original_filename
+                    FROM playlist_entries pe
+                    JOIN images i ON pe.image_uuid = i.uuid
+                    WHERE pe.playlist_id=? AND pe.{orient_col}=1
+                    ORDER BY pe.position""",
+                (int(pid),)).fetchall()
+            result = []
+            for r in rows:
+                if os.path.exists(os.path.join(ORIGINALS_DIR, r['original_filename'])):
+                    result.append(dict(r))
+            return result
     except Exception as e:
         logger.error(f"get_device_active_entries({mac}): {e}")
         return []
@@ -1578,12 +1541,11 @@ def get_device_active_entries(mac, orientation):
 def get_playlists_for_entry_image(image_uuid):
     """Return list of playlist_ids that contain entries for this image_uuid."""
     try:
-        conn = get_db()
-        rows = conn.execute(
-            "SELECT DISTINCT playlist_id FROM playlist_entries WHERE image_uuid=?",
-            (image_uuid,)).fetchall()
-        conn.close()
-        return [r['playlist_id'] for r in rows]
+        with managed_db() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT playlist_id FROM playlist_entries WHERE image_uuid=?",
+                (image_uuid,)).fetchall()
+            return [r['playlist_id'] for r in rows]
     except Exception as e:
         logger.error(f"get_playlists_for_entry_image({image_uuid}): {e}")
         return []
