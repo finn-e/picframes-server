@@ -1,6 +1,12 @@
 import numpy as np
 from PIL import Image
 
+try:
+    from dither_rs import dither_floyd_steinberg as _dither_rs_impl
+    _RUST_DITHER = True
+except ImportError:
+    _RUST_DITHER = False
+
 PALETTE = np.array([
     [0,   0,   0  ],
     [255, 255, 255],
@@ -12,6 +18,12 @@ PALETTE = np.array([
 
 
 def dither_floyd_steinberg(img_array, palette):
+    if _RUST_DITHER:
+        return _dither_rs_impl(
+            np.ascontiguousarray(img_array, dtype=np.float32),
+            np.ascontiguousarray(palette, dtype=np.float32),
+        )
+    # Pure-Python fallback (used when dither_rs extension is not compiled)
     h, w, _ = img_array.shape
     orig   = img_array.astype(np.float32)
     padded = np.pad(img_array, ((0, 1), (1, 1), (0, 0)), mode='edge').astype(np.float32)
