@@ -369,15 +369,15 @@ def _migrate_playlists(conn, c):
 
 def _seed_admin(conn, c):
     from werkzeug.security import generate_password_hash
+    # Only seed the default admin account on a genuinely fresh install (no
+    # users at all). Once any user exists, leave user rows alone — otherwise
+    # a deliberately deleted 'admin' account gets silently recreated (and any
+    # password change made via the UI gets silently reset) on every restart.
+    if conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] > 0:
+        return
     pwd = os.environ.get('ADMIN_PASSWORD', 'admin')
-    # Check if admin already exists
-    row = conn.execute("SELECT friend_code FROM users WHERE username='admin'").fetchone()
-    if row and row['friend_code']:
-        code = row['friend_code']
-    else:
-        code = _generate_unique_friend_code(conn)
-    c.execute("""INSERT INTO users (username, password_hash, is_admin, friend_code) VALUES ('admin', ?, 1, ?)
-                 ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash, friend_code=COALESCE(users.friend_code, excluded.friend_code)""",
+    code = _generate_unique_friend_code(conn)
+    c.execute("INSERT INTO users (username, password_hash, is_admin, friend_code) VALUES ('admin', ?, 1, ?)",
               (generate_password_hash(pwd), code))
     conn.commit()
 
