@@ -1,3 +1,5 @@
 __pycache__/
 *.pyc
 data/
+cloudflare-tunnel.yaml
+picframes.db
